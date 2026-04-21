@@ -493,8 +493,8 @@ if menu == "📤 출고요청서 (Qoo10)":
 
                 mc1.metric(
                     "총 상품 수량",
-                    audit['total_item_qty'],
-                    help="매핑 수량 합 (SKU 단위)",
+                    f"{audit['total_item_qty']} {_chip(audit['check_total_match_count'])}",
+                    help="매핑 수량 합 (SKU 단위). 업로드 개수와 일치해야 정상.",
                 )
                 mc2.metric(
                     "주문 업로드 개수",
@@ -508,7 +508,7 @@ if menu == "📤 출고요청서 (Qoo10)":
                 )
                 mc4.metric(
                     "주문번호 개수",
-                    audit['unique_orders'],
+                    f"{audit['unique_orders']} {_chip(audit['check_orders_covered'])}",
                     help="QSM에 송장번호 업로드할 주문번호 개수",
                 )
 
@@ -522,12 +522,60 @@ if menu == "📤 출고요청서 (Qoo10)":
                     err_df = pd.DataFrame(errors)
                     st.dataframe(err_df, width="stretch", hide_index=True)
 
+                # 주소 정제 검토 (필요시 사용자 최종 판단)
+                addr_approved = True  # 주소 변경 없으면 자동 통과
+                final_addr_map = {}
                 if addr_changes:
-                    with st.expander(f"ℹ️ 주소에서 특수문자 제거 ({len(addr_changes)}건)", expanded=False):
-                        st.caption("★ ◆ ♠ 등 배송 라벨 출력 시 문제될 수 있는 특수문자만 제거. 숫자/하이픈/한자 등은 보존됩니다.")
-                        st.dataframe(pd.DataFrame(addr_changes), width="stretch", hide_index=True)
+                    st.markdown("---")
+                    st.markdown("#### ⚠️ 주소 정제 검토 (사람의 최종 판단 필요)")
+                    st.caption(
+                        "자동 특수문자 제거 로직이 완벽하지 않아 **원본 주소와 정제 주소를 함께 표시**합니다. "
+                        "각 건마다 주소를 직접 확인하고, 필요시 **최종주소 컬럼을 수정**한 뒤 **승인** 체크를 켜세요. "
+                        "모두 승인되어야 출고요청서를 다운로드할 수 있습니다."
+                    )
+
+                    base = pd.DataFrame(addr_changes).copy()
+                    base['최종주소'] = base['정제주소']
+                    base['승인'] = False
+
+                    edited = st.data_editor(
+                        base,
+                        column_config={
+                            '장바구니번호': st.column_config.TextColumn(disabled=True, width="small"),
+                            '주문번호': st.column_config.TextColumn(disabled=True, width="small"),
+                            '원본주소': st.column_config.TextColumn(disabled=True, width="large"),
+                            '정제주소': st.column_config.TextColumn(disabled=True, width="large"),
+                            '최종주소': st.column_config.TextColumn(required=True, width="large",
+                                help="수정이 필요하면 이 컬럼을 편집하세요"),
+                            '승인': st.column_config.CheckboxColumn(required=True),
+                        },
+                        hide_index=True, width="stretch",
+                        key="addr_review",
+                    )
+
+                    approved_count = int(edited['승인'].sum())
+                    total_to_approve = len(edited)
+                    addr_approved = (approved_count == total_to_approve)
+
+                    if addr_approved:
+                        st.success(f"주소 검토 완료 ({total_to_approve}건 모두 승인됨)")
+                    else:
+                        st.warning(f"승인 대기: {total_to_approve - approved_count}건 남음 (전체 {total_to_approve}건)")
+
+                    # 장바구니번호 → 사용자 확정 주소 매핑
+                    for _, r in edited.iterrows():
+                        if r['승인']:
+                            final_addr_map[str(r['장바구니번호'])] = str(r['최종주소']).strip()
 
                 st.markdown("---")
+
+                # 사용자 승인 주소로 업데이트
+                if final_addr_map:
+                    for row in out_rows:
+                        cart = str(row.get('注文番号', ''))
+                        if cart in final_addr_map:
+                            row['基本住所'] = final_addr_map[cart]
+                            row['注文先基本住所'] = final_addr_map[cart]
 
                 if out_rows:
                     df_out = pd.DataFrame(out_rows)
@@ -538,15 +586,22 @@ if menu == "📤 출고요청서 (Qoo10)":
                         width="stretch", hide_index=True,
                     )
 
-                    xlsx_bytes = qgen.build_outbound_xlsx(out_rows)
-                    today_str = datetime.date.today().strftime('%Y%m%d')
-                    st.download_button(
-                        f"📥 Outbound_ship_conf_btoc_{today_str}.xlsx 다운로드",
-                        data=xlsx_bytes,
-                        file_name=f"Outbound_ship_conf_btoc_{today_str}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        width="stretch",
-                    )
+                    if not addr_approved:
+                        st.error(
+                            "⚠️ 위 주소 검토 표에서 모든 건을 승인해야 다운로드할 수 있습니다. "
+                            "최종주소 컬럼을 확인/수정 후 각 행의 **승인** 체크박스를 켜세요."
+                        )
+                    else:
+                        xlsx_bytes = qgen.build_outbound_xlsx(out_rows)
+                        today_str = datetime.date.today().strftime('%Y%m%d')
+                        st.download_button(
+                            f"📥 Outbound_ship_conf_btoc_{today_str}.xlsx 다운로드",
+                            data=xlsx_bytes,
+                            file_name=f"Outbound_ship_conf_btoc_{today_str}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            width="stretch",
+                            type="primary",
+                        )
             except Exception as e:
                 st.error(f"처리 중 오류: {e}")
 

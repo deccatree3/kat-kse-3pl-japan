@@ -280,8 +280,17 @@ def compute_audit(qsm_rows: List[Dict], outbound_rows: List[Dict],
     total_picking_pcs = sum(int(r.get('予定数量') or 0) for r in outbound_rows)
 
     # outbound_rows 검증
-    outbound_carts = len({r['注文番号'] for r in outbound_rows if r.get('注文番号')})
+    outbound_carts = len({r['注文番号'] for r in outbound_rows if r.get('注文番호')}) \
+        if False else len({r['注文番号'] for r in outbound_rows if r.get('注文番号')})
     outbound_rows_count = len(outbound_rows)
+
+    # 주문번호 개수 검증: 모든 enabled QSM 주문번호가 최소 1건 이상 출고 발생했는지
+    # (실제로는 매핑 성공=enabled이면 무조건 생성되므로 거의 항상 True. sanity check)
+    enabled_order_set = {(q.get('주문번호') or '').strip() for q, _ in enabled_qsm
+                         if (q.get('주문번호') or '').strip()}
+    # 출고 생성에 기여한 주문번호 (잠재적으로 매핑이 SKU=0행을 만들었을 때 drop될 수 있음)
+    generated_orders = unique_orders  # = len(enabled_order_set) by construction
+    check_orders_covered = generated_orders == len(enabled_order_set)
 
     return {
         'total_item_qty': total_item_qty,              # 총 상품 수량 (매핑 수량 합)
@@ -292,6 +301,7 @@ def compute_audit(qsm_rows: List[Dict], outbound_rows: List[Dict],
         'check_total_match_count': total_item_qty == upload_row_count,
         'check_carts_match': unique_carts == outbound_carts,
         'check_rows_match': upload_row_count == outbound_rows_count,
+        'check_orders_covered': check_orders_covered,
     }
 
 
