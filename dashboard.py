@@ -234,7 +234,7 @@ st.caption("KATCHERS × 国際エキスプレス (KOKUSAI EXPRESS)")
 # ─── Sidebar: 메뉴 선택 ───
 menu = st.sidebar.radio(
     "메뉴",
-    ["📋 물류비 검토", "📦 재고 소진 예측"],
+    ["📋 물류비 검토", "📦 재고 소진 예측", "📤 출고요청서 (Qoo10)"],
     label_visibility="collapsed",
 )
 st.sidebar.markdown("---")
@@ -454,6 +454,176 @@ if menu == "📦 재고 소진 예측":
 
     st.markdown("---")
     st.caption(f"KAT-KSE 3PL Japan · Updated: {pd.Timestamp.now().strftime('%Y-%m-%d')}")
+    st.stop()
+
+
+# ═══════════════════════════════════════════════
+# MENU: 출고요청서 (Qoo10 → KSE OMS)
+# ═══════════════════════════════════════════════
+if menu == "📤 출고요청서 (Qoo10)":
+    from qoo10 import generator as qgen
+
+    st.subheader("📤 Qoo10 출고요청서 / 송장번호 업로드")
+
+    tab_gen, tab_waybill, tab_mapping = st.tabs([
+        "① 출고요청서 생성", "② QSM 송장 업로드", "🔧 상품 매핑"
+    ])
+
+    # ─── 탭1: 출고요청서 생성 ───
+    with tab_gen:
+        st.markdown("QSM에서 다운받은 **detail.csv**를 업로드하면 KSE OMS 업로드용 `Outbound_ship_conf.xlsx`를 생성합니다.")
+        det_file = st.file_uploader(
+            "QSM detail.csv 업로드", type=['csv'], key="qoo10_detail"
+        )
+        if det_file:
+            try:
+                rows = qgen.parse_qsm_csv(det_file.getvalue())
+                st.info(f"QSM 주문 {len(rows)}건 인식")
+
+                mappings = qgen.load_mappings()
+                out_rows, errors = qgen.generate_outbound_rows(rows, mappings)
+
+                c1, c2 = st.columns(2)
+                c1.metric("변환된 Outbound 행", len(out_rows))
+                c2.metric("에러 (미매핑 등)", len(errors))
+
+                if errors:
+                    st.warning("매핑되지 않은 주문이 있습니다. 먼저 **🔧 상품 매핑** 탭에서 추가하세요.")
+                    err_df = pd.DataFrame(errors)
+                    st.dataframe(err_df, width="stretch", hide_index=True)
+
+                if out_rows:
+                    df_out = pd.DataFrame(out_rows)
+                    st.markdown("**미리보기**")
+                    st.dataframe(
+                        df_out[['倉庫コード', '商品コード', '予定数量', '注文番号',
+                                '仕入先名/受取人名', '郵便番号コード', '基本住所']],
+                        width="stretch", hide_index=True,
+                    )
+
+                    xlsx_bytes = qgen.build_outbound_xlsx(out_rows)
+                    today_str = datetime.date.today().strftime('%Y%m%d')
+                    st.download_button(
+                        f"📥 Outbound_ship_conf_btoc_{today_str}.xlsx 다운로드",
+                        data=xlsx_bytes,
+                        file_name=f"Outbound_ship_conf_btoc_{today_str}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        width="stretch",
+                    )
+            except Exception as e:
+                st.error(f"처리 중 오류: {e}")
+
+    # ─── 탭2: QSM 송장번호 업로드 양식 ───
+    with tab_waybill:
+        st.markdown("QSM **brief.csv**와 송장번호 매핑을 합쳐 QSM 업로드용 CSV를 생성합니다.")
+
+        brief_file = st.file_uploader(
+            "QSM brief.csv 업로드", type=['csv'], key="qoo10_brief"
+        )
+
+        st.markdown("**장바구니번호 → 송장번호 매핑**")
+        wb_method = st.radio(
+            "입력 방식", ["수동 입력 (표)", "KSE ORDER_LIST에서 자동 조회"],
+            horizontal=True, label_visibility="collapsed"
+        )
+
+        waybill_map = {}
+        if brief_file:
+            brief_rows = qgen.parse_qsm_csv(brief_file.getvalue())
+            cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
+
+            if wb_method == "수동 입력 (표)":
+                df_wb = pd.DataFrame({
+                    '장바구니번호': cart_nos,
+                    '수취인명': [r.get('수취인명', '') for r in brief_rows],
+                    '송장번호': [''] * len(brief_rows),
+                })
+                edited = st.data_editor(
+                    df_wb, width="stretch", hide_index=True,
+                    disabled=['장바구니번호', '수취인명'],
+                )
+                for _, r in edited.iterrows():
+                    if r['송장번호']:
+                        waybill_map[r['장바구니번호']] = str(r['송장번호']).strip()
+            else:
+                # shipments 테이블에서 장바구니번호 → waybill 매핑
+                if cart_nos:
+                    placeholders = ','.join(['%s'] * len(cart_nos))
+                    df = pg.query_df(f"""
+                        SELECT order_no, MAX(waybill) AS waybill
+                        FROM shipments
+                        WHERE order_no IN ({placeholders}) AND waybill NOT LIKE 'NOWB_%%'
+                        GROUP BY order_no
+                    """, cart_nos)
+                    for _, r in df.iterrows():
+                        waybill_map[str(r['order_no'])] = str(r['waybill'])
+                    st.info(f"DB에서 {len(waybill_map)}/{len(cart_nos)}건 매칭됨")
+                    if len(waybill_map) < len(cart_nos):
+                        missing = [c for c in cart_nos if c not in waybill_map]
+                        st.warning(f"미매칭: {', '.join(missing)}")
+
+        if brief_file and waybill_map:
+            if st.button("송장번호 채워진 CSV 생성", width="stretch", type="primary"):
+                csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_file.getvalue(), waybill_map)
+                today_str = datetime.date.today().strftime('%Y%m%d')
+                st.download_button(
+                    f"📥 QSM_waybill_{today_str}.csv 다운로드",
+                    data=csv_bytes,
+                    file_name=f"QSM_waybill_{today_str}.csv",
+                    mime="text/csv",
+                    width="stretch",
+                )
+                if missing:
+                    st.warning(f"송장번호 미입력 {len(missing)}건: {', '.join(missing)}")
+
+    # ─── 탭3: 상품 매핑 관리 ───
+    with tab_mapping:
+        st.markdown("Qoo10 상품/옵션 조합 ↔ KSE SKU 매핑 관리. 새 상품 옵션이 나오면 여기서 추가하세요.")
+
+        maps_df = pg.query_df("""
+            SELECT qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled
+            FROM qoo10_product_mapping ORDER BY enabled DESC, qoo10_name, qoo10_option
+        """)
+        st.caption(f"총 {len(maps_df)}개 매핑 (활성 {int(maps_df['enabled'].sum())}개)")
+        st.dataframe(maps_df, width="stretch", hide_index=True)
+
+        with st.expander("➕ 새 매핑 추가"):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_name = st.text_area("Qoo10 상품명", height=80)
+                new_option = st.text_input("Qoo10 옵션정보 (옵션 없으면 빈칸)")
+            with col2:
+                new_skus = st.text_input("KSE SKU 코드 (쉼표 구분)", placeholder="KC_8809885876128,KC_8809885876555")
+                new_qtys = st.text_input("수량 (쉼표 구분)", value="1")
+                new_enabled = st.checkbox("활성화", value=True)
+
+            if st.button("매핑 저장", type="primary"):
+                if not new_name or not new_skus:
+                    st.error("상품명과 SKU는 필수입니다.")
+                else:
+                    skus_list = [s.strip() for s in new_skus.split(',')]
+                    qtys_list = [q.strip() for q in new_qtys.split(',')]
+                    if len(qtys_list) == 1 and len(skus_list) > 1:
+                        qtys_list = ['1'] * len(skus_list)
+                    item_codes = ','.join(skus_list)  # 단순화: SKU코드를 품목코드로도 사용
+                    conn = pg.connect()
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO qoo10_product_mapping
+                            (qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (qoo10_name, qoo10_option) DO UPDATE SET
+                                item_codes = EXCLUDED.item_codes,
+                                sku_codes = EXCLUDED.sku_codes,
+                                quantities = EXCLUDED.quantities,
+                                enabled = EXCLUDED.enabled,
+                                updated_at = CURRENT_TIMESTAMP
+                        """, (new_name.strip(), new_option.strip(), item_codes,
+                              ','.join(skus_list), ','.join(qtys_list), new_enabled))
+                    conn.commit()
+                    conn.close()
+                    st.success("저장됨. 새로고침하세요.")
+
     st.stop()
 
 
