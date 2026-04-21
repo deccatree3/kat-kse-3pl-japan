@@ -129,7 +129,13 @@ def normalize_order_date(qsm_date: str) -> str:
 
 def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[Dict], List[Dict]]:
     """
-    detail 행들 → Outbound 행들 변환 (1주문 → N SKU 행).
+    QSM detail 행들 → Outbound 행들 변환.
+    Power Query 로직 준수:
+      1. 취합대상(enabled)=y만 필터
+      2. 품목코드("SKU1,qty1,SKU2,qty2") split & expand → N SKU 행
+      3. 予定数量 = QSM수량 × 매핑 SKU당수량
+      4. 정렬: 장바구니번호 ASC, 주문번호 ASC, 품목(SKU) ASC
+      5. 注文番号는 장바구니번호 사용 (같은 장바구니 = 합포장)
     반환: (출고 행들, 미매핑/에러 행들)
     """
     today = datetime.date.today().strftime('%Y%m%d')
@@ -137,49 +143,40 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
     errors = []
 
     for q in qsm_rows:
-        # 배송상태가 '배송요청' 등 처리대상만 (이미 출고된 건 스킵)
-        status = q.get('배송상태', '').strip()
-        if status not in ('배송요청', '배송중', '요청'):
-            # 일단 전부 처리하되 나중에 옵션으로
-            pass
+        name = (q.get('상품명') or '').strip()
+        option = (q.get('옵션정보') or '').strip()
+        qsm_qty = int(q.get('수량', '1') or 1)
+        cart_no = (q.get('장바구니번호') or '').strip()
+        order_no = (q.get('주문번호') or '').strip()
 
-        name = q.get('상품명', '').strip()
-        option = q.get('옵션정보', '').strip()
-        qty = int(q.get('수량', '1') or 1)
-
-        key = (name, option)
-        m = mappings.get(key)
-
+        m = mappings.get((name, option))
         if m is None:
             errors.append({
-                'order_no': q.get('장바구니번호', ''),
-                'name': name,
-                'option': option,
-                'reason': '상품 매핑 없음',
+                '장바구니번호': cart_no, '주문번호': order_no,
+                '상품명': name, '옵션정보': option,
+                '원인': '상품 매핑 없음',
             })
             continue
         if not m['enabled']:
             errors.append({
-                'order_no': q.get('장바구니번호', ''),
-                'name': name,
-                'option': option,
-                'reason': '매핑 비활성(취급 안함)',
+                '장바구니번호': cart_no, '주문번호': order_no,
+                '상품명': name, '옵션정보': option,
+                '원인': '매핑 비활성(취급 안함)',
             })
             continue
 
-        # 각 SKU별로 한 행
-        for sku_code, sku_qty in zip(m['sku_codes'], m['quantities']):
+        # SKU별 1행 생성 (세트 상품은 N행으로 분할)
+        for sku_code, sku_unit_qty in zip(m['sku_codes'], m['quantities']):
             if not sku_code or sku_code == '-':
                 continue
             row = {h[0]: '' for h in OUTBOUND_HEADERS}
-            # 고정값
             row['倉庫コード'] = 'KE00003'
             row['荷主コード'] = 'katchers'
             row['出庫予定日'] = today
             row['注文日'] = normalize_order_date(q.get('주문일', ''))
             row['商品コード'] = sku_code
-            row['予定数量'] = sku_qty * qty
-            row['注文番号'] = q.get('장바구니번호', '')
+            row['予定数量'] = sku_unit_qty * qsm_qty  # 핵심: 매핑수량 × QSM수량
+            row['注文番号'] = cart_no  # 장바구니번호 사용 (합포장)
             row['仕入先名/受取人名'] = q.get('수취인명', '')
             row['電話番号'] = q.get('수취인핸드폰번호', '') or q.get('수취인전화번호', '')
             row['国コード'] = 'JPN'
@@ -192,7 +189,18 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
             row['注文先国コード'] = 'JPN'
             row['注文先郵便番号'] = normalize_postal(q.get('우편번호', ''))
             row['注文先基本住所'] = q.get('주소', '')
+            # 정렬용 내부 키 (마지막에 제거됨)
+            row['_sort_cart'] = cart_no
+            row['_sort_order'] = order_no
+            row['_sort_sku'] = sku_code
             outbound_rows.append(row)
+
+    # Power Query와 동일한 정렬: 장바구니 ASC → 주문 ASC → SKU ASC
+    outbound_rows.sort(key=lambda r: (r['_sort_cart'], r['_sort_order'], r['_sort_sku']))
+    for r in outbound_rows:
+        r.pop('_sort_cart', None)
+        r.pop('_sort_order', None)
+        r.pop('_sort_sku', None)
 
     return outbound_rows, errors
 
