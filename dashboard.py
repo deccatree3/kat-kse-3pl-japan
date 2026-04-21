@@ -17,7 +17,6 @@ import openpyxl
 from db import pg
 
 APP_CFG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
-ALERT_CFG_PATH = os.path.join(os.path.dirname(__file__), "alerts", "config.json")
 
 
 def load_app_config():
@@ -41,16 +40,40 @@ RAW_DIR = load_app_config()["raw_dir"]
 
 
 def load_alert_config():
-    if not os.path.exists(ALERT_CFG_PATH):
-        return {"enabled": False, "webhook_url": "", "threshold_days": 30, "last_alerted_skus": []}
-    with open(ALERT_CFG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """DB에서 alert_config 로드"""
+    try:
+        df = pg.query_df("SELECT enabled, webhook_url, threshold_days FROM alert_config WHERE id=1")
+        if df.empty:
+            return {"enabled": False, "webhook_url": "", "threshold_days": 30}
+        r = df.iloc[0]
+        return {
+            "enabled": bool(r["enabled"]),
+            "webhook_url": r["webhook_url"] or "",
+            "threshold_days": int(r["threshold_days"]),
+        }
+    except Exception:
+        return {"enabled": False, "webhook_url": "", "threshold_days": 30}
 
 
 def save_alert_config(cfg):
-    os.makedirs(os.path.dirname(ALERT_CFG_PATH), exist_ok=True)
-    with open(ALERT_CFG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    """DB에 alert_config 저장"""
+    conn = pg.connect()
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO alert_config (id, enabled, webhook_url, threshold_days, updated_at)
+            VALUES (1, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (id) DO UPDATE SET
+                enabled = EXCLUDED.enabled,
+                webhook_url = EXCLUDED.webhook_url,
+                threshold_days = EXCLUDED.threshold_days,
+                updated_at = CURRENT_TIMESTAMP
+        """, (
+            bool(cfg.get("enabled", False)),
+            (cfg.get("webhook_url") or "").strip(),
+            int(cfg.get("threshold_days", 30)),
+        ))
+    conn.commit()
+    conn.close()
 
 
 def send_slack_test(webhook_url):
@@ -337,9 +360,8 @@ if menu == "📦 재고 소진 예측":
                     st.error(f"전송 실패: {e}")
 
         st.caption(
-            "실제 발송은 스케줄러(`python alerts/notifier.py`)가 담당합니다. "
-            "Windows 작업 스케줄러에 매일 1회 실행으로 등록하세요. "
-            "임계값 이하로 **신규 진입**한 SKU만 알림 (중복 방지)."
+            "GitHub Actions가 매일 KST 09:00에 실행하여 임계값 이하 **신규 진입** SKU를 Slack으로 발송합니다. "
+            "위 설정은 저장 즉시 DB에 반영되어 스케줄러가 곧바로 사용합니다."
         )
 
     st.markdown("---")

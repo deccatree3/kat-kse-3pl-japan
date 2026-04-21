@@ -15,8 +15,6 @@ from collections import defaultdict
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
 
 # db/pg.py 모듈 import
 sys.path.insert(0, os.path.join(BASE_DIR, "db"))
@@ -24,34 +22,36 @@ import pg as _pg
 
 
 def load_config():
-    """로컬 설정 (env 변수가 있으면 덮어쓰기)"""
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-    else:
-        cfg = {"enabled": False, "webhook_url": "", "threshold_days": 30}
-
-    # 환경변수 오버라이드 (GitHub Actions용)
-    if os.environ.get("SLACK_WEBHOOK_URL"):
-        cfg["webhook_url"] = os.environ["SLACK_WEBHOOK_URL"]
-    if os.environ.get("SLACK_ENABLED") in ("1", "true", "True"):
-        cfg["enabled"] = True
-    if os.environ.get("SLACK_THRESHOLD_DAYS"):
-        cfg["threshold_days"] = int(os.environ["SLACK_THRESHOLD_DAYS"])
-
-    return cfg
-
-
-def load_state():
-    if not os.path.exists(STATE_PATH):
-        return {"last_alerted_skus": []}
-    with open(STATE_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """DB alert_config 테이블에서 설정 + 상태 로드"""
+    conn = _pg.connect(autocommit=True)
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT enabled, webhook_url, threshold_days, last_alerted_skus
+            FROM alert_config WHERE id=1
+        """)
+        row = cur.fetchone()
+    conn.close()
+    if not row:
+        return {"enabled": False, "webhook_url": "", "threshold_days": 30, "last_alerted_skus": []}
+    return {
+        "enabled": bool(row[0]),
+        "webhook_url": row[1] or "",
+        "threshold_days": int(row[2]),
+        "last_alerted_skus": row[3] or [],
+    }
 
 
-def save_state(state):
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+def save_last_alerted(skus: list):
+    """state를 DB에 저장"""
+    conn = _pg.connect()
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE alert_config
+            SET last_alerted_skus = %s::jsonb, updated_at = CURRENT_TIMESTAMP
+            WHERE id=1
+        """, (json.dumps(sorted(skus)),))
+    conn.commit()
+    conn.close()
 
 
 def compute_forecast():
@@ -168,7 +168,6 @@ def send_slack(webhook_url, text):
 
 def main():
     cfg = load_config()
-    state = load_state()
 
     if not cfg.get("enabled"):
         print("[SKIP] 알림 비활성화")
@@ -191,7 +190,7 @@ def main():
         if r['remaining_days'] is not None and r['remaining_days'] <= threshold
     ]
     current_skus = set(r['code'] for r in current_alert)
-    last_skus = set(state.get("last_alerted_skus", []))
+    last_skus = set(cfg.get("last_alerted_skus", []))
     new_skus = current_skus - last_skus
 
     if not new_skus:
@@ -207,9 +206,7 @@ def main():
                 print(f"[ERROR] Slack 전송 실패: {e}")
                 return
 
-    # 상태 저장
-    state["last_alerted_skus"] = sorted(current_skus)
-    save_state(state)
+    save_last_alerted(list(current_skus))
 
 
 if __name__ == "__main__":
