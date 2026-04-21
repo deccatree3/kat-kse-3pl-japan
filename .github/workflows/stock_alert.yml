@@ -1,0 +1,41 @@
+name: Daily Stock Depletion Alert
+
+on:
+  schedule:
+    # UTC 00:00 = KST 09:00 (매일 오전 9시 한국시간)
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # state.json 커밋 권한
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run notifier
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_ENABLED: "1"
+          SLACK_THRESHOLD_DAYS: "30"
+        run: python alerts/notifier.py
+
+      - name: Commit state if changed
+        run: |
+          if git diff --quiet alerts/state.json; then
+            echo "No state change"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add alerts/state.json
+            git commit -m "chore: update alert state [skip ci]"
+            git push
+          fi

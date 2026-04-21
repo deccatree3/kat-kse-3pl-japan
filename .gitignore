@@ -1,0 +1,31 @@
+# Sensitive config (webhook URL) - NEVER commit
+alerts/config.json
+
+# Raw files (주문/재고 원본, 개인정보 포함 가능)
+raw/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# SQLite 보조 파일 (WAL 모드)
+*.db-shm
+*.db-wal
+
+# Claude Code local settings
+.claude/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
