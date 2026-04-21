@@ -611,41 +611,44 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭2: QSM 송장번호 업로드 양식 ───
     with tab_waybill:
-        st.markdown("QSM **brief.csv** + KSE OMS **주문(출고&입고) 내역 xlsx** → QSM 업로드용 CSV 생성")
-        st.caption("두 파일 모두 필수입니다.")
+        st.markdown("**QSM brief.csv** + **KSE OMS 주문(출고&입고) 내역 xlsx** 두 파일을 한번에 업로드")
 
-        col_a, col_b = st.columns(2)
-        with col_a:
-            brief_file = st.file_uploader(
-                "① QSM brief.csv *",
-                type=['csv'], key="qoo10_brief",
-                help="QSM에서 다운받은 송장번호 업로드 양식 (송장번호 컬럼 비어있음)",
-            )
-        with col_b:
-            oms_file = st.file_uploader(
-                "② KSE OMS 주문(출고&입고) 내역.xlsx *",
-                type=['xlsx'], key="oms_waybill_xlsx",
-                help="KSE OMS에서 내려받은 주문번호↔송장번호 자료 (취소건 자동 제외)",
-            )
+        uploaded = st.file_uploader(
+            "파일 2개 업로드 (csv + xlsx)",
+            type=['csv', 'xlsx'],
+            accept_multiple_files=True,
+            key="qsm_waybill_files",
+            help="QSM brief.csv (송장번호 업로드 양식) 과 KSE OMS 주문(출고&입고) 내역.xlsx",
+        )
 
-        # 둘 다 올라와야 진행
-        if not brief_file or not oms_file:
+        brief_file = None
+        oms_file = None
+        if uploaded:
+            for f in uploaded:
+                name = f.name.lower()
+                if name.endswith('.csv'):
+                    brief_file = f
+                elif name.endswith('.xlsx'):
+                    oms_file = f
+
+        if not uploaded:
+            st.info("⚠️ brief.csv 와 KSE OMS xlsx 두 파일을 업로드하세요.")
+        elif not brief_file or not oms_file:
             missing_files = []
             if not brief_file:
-                missing_files.append("QSM brief.csv")
+                missing_files.append("QSM brief (.csv)")
             if not oms_file:
-                missing_files.append("KSE OMS xlsx")
-            st.info(f"⚠️ 필수 파일 업로드 필요: {', '.join(missing_files)}")
+                missing_files.append("KSE OMS (.xlsx)")
+            st.warning(f"⚠️ 누락: {', '.join(missing_files)}")
         else:
-            waybill_map = {}
             try:
                 brief_rows = qgen.parse_qsm_csv(brief_file.getvalue())
                 cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
 
                 oms_map = qgen.parse_kse_oms_waybill(oms_file.getvalue())
-                for c in cart_nos:
-                    if c in oms_map:
-                        waybill_map[c] = oms_map[c]
+                waybill_map = {c: oms_map[c] for c in cart_nos if c in oms_map}
+
+                st.caption(f"📄 brief: `{brief_file.name}` · OMS: `{oms_file.name}`")
 
                 c1, c2, c3 = st.columns(3)
                 c1.metric("QSM brief 주문", len(cart_nos))
