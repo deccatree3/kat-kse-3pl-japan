@@ -674,9 +674,9 @@ with tab_mom:
             st.markdown("---")
             st.markdown("#### 항목별 금액")
             items = load_data("""
-                SELECT li.line_no as No, li.description as '작업내용',
-                       li.unit_price as '단가', li.unit as '단위',
-                       li.billed_qty as '개수', li.billed_amount as '금액'
+                SELECT li.line_no as "No", li.description as "작업내용",
+                       li.unit_price as "단가", li.unit as "단위",
+                       li.billed_qty as "개수", li.billed_amount as "금액"
                 FROM line_items li
                 JOIN invoices inv ON li.invoice_id = inv.id
                 WHERE inv.year_month = ? AND inv.invoice_type = 'monthly' AND li.billed_amount > 0
@@ -1015,8 +1015,8 @@ with tab_prices:
     st.subheader("현행 단가표")
 
     prices = load_data("""
-        SELECT description as '항목', unit_price as '단가(JPY)', unit as '단위',
-               effective_from as '적용시작', effective_to as '적용종료'
+        SELECT description as "항목", unit_price as "단가(JPY)", unit as "단위",
+               effective_from as "적용시작", effective_to as "적용종료"
         FROM unit_prices WHERE effective_to IS NULL ORDER BY id
     """)
 

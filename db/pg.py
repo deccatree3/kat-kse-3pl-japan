@@ -4,7 +4,6 @@ Postgres 공통 헬퍼. dashboard/loader/notifier 모두 여기를 사용.
 import os
 import json
 import psycopg
-import pandas as pd
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_CFG = os.path.join(BASE_DIR, "config.json")
@@ -28,8 +27,9 @@ def connect(**kwargs) -> psycopg.Connection:
     return psycopg.connect(dsn, **kwargs)
 
 
-def query_df(sql: str, params=None, conn=None) -> pd.DataFrame:
-    """쿼리를 DataFrame으로 반환"""
+def query_df(sql: str, params=None, conn=None):
+    """쿼리를 DataFrame으로 반환 (pandas 필요)"""
+    import pandas as pd
     close = False
     if conn is None:
         conn = connect(autocommit=True)
