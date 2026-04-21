@@ -3,6 +3,7 @@ QSM detail.csv → KSE OMS Outbound 양식 변환.
 QSM brief.csv + 송장번호 매핑 → QSM 업로드용 CSV 생성.
 """
 import csv
+import copy
 import io
 import os
 import sys
@@ -10,6 +11,10 @@ import datetime
 from typing import List, Dict, Tuple
 
 import openpyxl
+from openpyxl.utils import get_column_letter
+
+_THIS = os.path.dirname(os.path.abspath(__file__))
+OUTBOUND_TEMPLATE = os.path.join(_THIS, "templates", "outbound_template.xlsx")
 
 # db/pg.py import
 _THIS = os.path.dirname(os.path.abspath(__file__))
@@ -193,22 +198,47 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
 
 
 def build_outbound_xlsx(outbound_rows: List[Dict]) -> bytes:
-    """Outbound xlsx bytes 생성"""
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Excel Sample"
+    """
+    원본 템플릿을 로드해 서식(컬럼 너비, 헤더 스타일, 폰트, 색상 등)을 그대로 보존한 채
+    데이터 행만 교체하여 bytes 반환.
+    """
+    wb = openpyxl.load_workbook(OUTBOUND_TEMPLATE)
+    ws = wb.active  # "Excel Sample"
 
-    # 헤더 (日本語\n영문코드 - 줄바꿈)
-    for c, (jp, en) in enumerate(OUTBOUND_HEADERS, 1):
-        ws.cell(1, c, f"{jp}\n{en}")
+    # 기존 샘플 데이터 행 삭제 (row 2 ~ max_row). 헤더(row1)는 유지.
+    if ws.max_row >= 2:
+        ws.delete_rows(2, ws.max_row - 1)
 
-    for r, row in enumerate(outbound_rows, 2):
+    # 헤더(row1)의 각 컬럼 셀 서식을 template_style로 기억
+    # → 데이터 행의 기본 서식으로 사용할 수 있음. 그러나 원본에선
+    # 데이터 행이 별도 서식(맑은 고딕 등)이었으므로 그걸 재현하기 위해
+    # 원본 row2 스타일 템플릿을 미리 보관.
+    # 이미 delete_rows로 지웠으므로, 원본을 다시 읽어서 row2 스타일을 가져온다.
+    style_wb = openpyxl.load_workbook(OUTBOUND_TEMPLATE)
+    style_ws = style_wb.active
+    data_styles = []
+    for c in range(1, style_ws.max_column + 1):
+        src = style_ws.cell(2, c)
+        data_styles.append({
+            'font': copy.copy(src.font),
+            'fill': copy.copy(src.fill),
+            'alignment': copy.copy(src.alignment),
+            'border': copy.copy(src.border),
+            'number_format': src.number_format,
+        })
+    style_wb.close()
+
+    # 데이터 행 추가
+    for ridx, row in enumerate(outbound_rows, start=2):
         for c, (jp, _) in enumerate(OUTBOUND_HEADERS, 1):
-            ws.cell(r, c, row.get(jp, ''))
-
-    # 컬럼 너비 기본
-    for c in range(1, len(OUTBOUND_HEADERS) + 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 15
+            cell = ws.cell(ridx, c, row.get(jp, ''))
+            s = data_styles[c - 1] if c - 1 < len(data_styles) else None
+            if s:
+                cell.font = s['font']
+                cell.fill = s['fill']
+                cell.alignment = s['alignment']
+                cell.border = s['border']
+                cell.number_format = s['number_format']
 
     out = io.BytesIO()
     wb.save(out)
