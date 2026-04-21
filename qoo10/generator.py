@@ -100,11 +100,13 @@ def load_kse_sku_catalog() -> List[Dict]:
     return [{'sku_code': r[0], 'sku_name': r[1]} for r in rows]
 
 
-def add_mapping(qoo10_name: str, qoo10_option: str, skus: List[Tuple[str, str, int]]):
+def add_mapping(qoo10_name: str, qoo10_option: str,
+                skus: List[Tuple[str, str, int]], enabled: bool = True):
     """
-    새 매핑 저장. skus = [(sku_code, sku_name, qty), ...]
+    새/기존 매핑 upsert. skus = [(sku_code, sku_name, qty), ...]
+    sku_code는 sku_name에서 카탈로그로 조회되므로 호출부에서 전달받음.
     """
-    item_codes = ','.join(s[1] for s in skus)  # 사람이 읽는 상품명 (템플릿 관례)
+    item_codes = ','.join(s[1] for s in skus)
     sku_codes = ','.join(s[0] for s in skus)
     quantities = ','.join(str(s[2]) for s in skus)
 
@@ -113,14 +115,26 @@ def add_mapping(qoo10_name: str, qoo10_option: str, skus: List[Tuple[str, str, i
         cur.execute("""
             INSERT INTO qoo10_product_mapping
             (qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled)
-            VALUES (%s, %s, %s, %s, %s, TRUE)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (qoo10_name, qoo10_option) DO UPDATE SET
                 item_codes = EXCLUDED.item_codes,
                 sku_codes = EXCLUDED.sku_codes,
                 quantities = EXCLUDED.quantities,
-                enabled = TRUE,
+                enabled = EXCLUDED.enabled,
                 updated_at = CURRENT_TIMESTAMP
-        """, (qoo10_name, qoo10_option, item_codes, sku_codes, quantities))
+        """, (qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled))
+    conn.commit()
+    conn.close()
+
+
+def delete_mapping(qoo10_name: str, qoo10_option: str):
+    """매핑 삭제"""
+    conn = pg.connect()
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM qoo10_product_mapping WHERE qoo10_name=%s AND qoo10_option=%s",
+            (qoo10_name, qoo10_option),
+        )
     conn.commit()
     conn.close()
 

@@ -781,55 +781,151 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭3: 상품 매핑 관리 ───
     with tab_mapping:
-        st.markdown("Qoo10 상품/옵션 ↔ KSE SKU 매핑 조회/편집.")
+        st.markdown("Qoo10 상품/옵션 ↔ KSE SKU 매핑 조회·편집·삭제.")
         st.caption(
-            "💡 **신규 상품은 탭 ①에서 파일 업로드하면 인라인으로 추가**하는 것이 편리합니다. "
-            "여기는 기존 매핑의 조회·수정·수동 등록 용도."
+            "💡 **신규 상품은 탭 ①에서 파일 업로드하면 자동 감지되어 더 편리**합니다. "
+            "여기는 기존 매핑 편집 및 수동 추가 용도."
         )
+
+        # KSE SKU 카탈로그 (드롭다운 소스)
+        sku_catalog = qgen.load_kse_sku_catalog()
+        if not sku_catalog:
+            st.error("KSE SKU 카탈로그가 비어있습니다. 재고현황/ORDER_LIST 업로드가 먼저 필요합니다.")
+            st.stop()
+
+        sku_name_to_code = {s['sku_name']: s['sku_code'] for s in sku_catalog}
+        sku_code_to_name = {s['sku_code']: s['sku_name'] for s in sku_catalog}
+        sku_name_options = list(sku_name_to_code.keys())
 
         maps_df = pg.query_df("""
             SELECT qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled
             FROM qoo10_product_mapping ORDER BY enabled DESC, qoo10_name, qoo10_option
         """)
         st.caption(f"총 {len(maps_df)}개 매핑 (활성 {int(maps_df['enabled'].sum())}개)")
-        st.dataframe(maps_df, width="stretch", hide_index=True)
 
-        with st.expander("➕ 수동 매핑 추가 (고급)"):
-            col1, col2 = st.columns(2)
-            with col1:
-                new_name = st.text_area("Qoo10 상품명", height=80)
-                new_option = st.text_input("Qoo10 옵션정보 (옵션 없으면 빈칸)")
-            with col2:
-                new_skus = st.text_input("KSE SKU 코드 (쉼표 구분)", placeholder="KC_8809885876128,KC_8809885876555")
-                new_qtys = st.text_input("수량 (쉼표 구분)", value="1")
-                new_enabled = st.checkbox("활성화", value=True)
+        # 검색
+        search = st.text_input("🔍 검색", placeholder="상품명 또는 옵션의 일부 (공백시 전체)")
+        if search:
+            mask = maps_df['qoo10_name'].str.contains(search, case=False, na=False) | \
+                   maps_df['qoo10_option'].str.contains(search, case=False, na=False)
+            maps_df = maps_df[mask]
 
-            if st.button("매핑 저장", type="primary"):
-                if not new_name or not new_skus:
-                    st.error("상품명과 SKU는 필수입니다.")
+        st.markdown("---")
+
+        def render_sku_editor(item_codes_init, quantities_init, editor_key):
+            """SKU/수량 테이블. 품목 드롭다운 → 코드는 자동 유도"""
+            init_names = [s.strip() for s in (item_codes_init or '').split(',') if s.strip()]
+            init_qtys = [int(q) for q in (quantities_init or '1').split(',') if q.strip()]
+            if len(init_qtys) < len(init_names):
+                init_qtys += [1] * (len(init_names) - len(init_qtys))
+
+            # 카탈로그에 없는 상품명은 드롭다운 맨 위 선택지로 일단 허용
+            default_first = sku_name_options[0] if sku_name_options else ''
+            safe_names = [n if n in sku_name_to_code else default_first for n in init_names]
+            if not safe_names:
+                safe_names = [default_first]
+                init_qtys = [1]
+
+            df = pd.DataFrame({
+                'KSE 상품 (품목)': safe_names,
+                '수량': init_qtys,
+            })
+            edited = st.data_editor(
+                df,
+                column_config={
+                    'KSE 상품 (품목)': st.column_config.SelectboxColumn(
+                        options=sku_name_options, required=True, width="large",
+                        help="품목 선택 시 SKU 코드는 자동 매칭"),
+                    '수량': st.column_config.NumberColumn(
+                        min_value=1, step=1, default=1, required=True, width="small"),
+                },
+                num_rows="dynamic",
+                hide_index=True,
+                key=editor_key,
+            )
+            return edited
+
+        # 기존 매핑 목록 (편집)
+        if maps_df.empty:
+            st.info("매핑 없음.")
+        else:
+            for _, row in maps_df.iterrows():
+                qn = row['qoo10_name']
+                qo = row['qoo10_option']
+                enabled = bool(row['enabled'])
+                # 대표 SKU (첫번째) 간략 요약
+                names_preview = (row['item_codes'] or '').split(',')
+                qtys_preview = (row['quantities'] or '').split(',')
+                summary = ' + '.join(f"{n.strip()}×{q}" for n, q in zip(names_preview, qtys_preview) if n.strip())
+
+                title_opt = f" / {qo}" if qo else ""
+                emoji = "✅" if enabled else "⏸️"
+                with st.expander(f"{emoji} {qn[:60]}{title_opt[:40]}  —  {summary}"):
+                    st.caption(f"**상품명**: {qn}")
+                    st.caption(f"**옵션**: {qo or '(없음)'}")
+
+                    edit_key = f"edit_{hash((qn, qo))}"
+                    edited = render_sku_editor(
+                        row['item_codes'], row['quantities'], edit_key + "_tbl"
+                    )
+                    new_enabled = st.checkbox("활성화", value=enabled, key=edit_key + "_en")
+
+                    c1, c2, _ = st.columns([1, 1, 3])
+                    with c1:
+                        if st.button("💾 저장", key=edit_key + "_save", type="primary"):
+                            valid = edited.dropna(subset=['KSE 상품 (품목)'])
+                            if valid.empty:
+                                st.error("최소 1개 품목이 필요합니다.")
+                            else:
+                                payload = []
+                                for _, r in valid.iterrows():
+                                    name = r['KSE 상품 (품목)']
+                                    code = sku_name_to_code.get(name, '')
+                                    payload.append((code, name, int(r['수량'] or 1)))
+                                try:
+                                    qgen.add_mapping(qn, qo, payload, enabled=new_enabled)
+                                    st.success("저장됨")
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"실패: {ex}")
+                    with c2:
+                        if st.button("🗑 삭제", key=edit_key + "_del"):
+                            try:
+                                qgen.delete_mapping(qn, qo)
+                                st.success("삭제됨")
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"실패: {ex}")
+
+        # 수동 매핑 추가
+        st.markdown("---")
+        with st.expander("➕ 수동 매핑 추가"):
+            new_qn = st.text_area("Qoo10 상품명", height=80, key="new_map_name")
+            new_qo = st.text_input("Qoo10 옵션정보 (없으면 빈칸)", key="new_map_option")
+
+            st.markdown("**KSE SKU 구성** (세트면 여러 행)")
+            new_edited = render_sku_editor('', '1', "new_map_editor")
+            new_enabled = st.checkbox("활성화", value=True, key="new_map_enabled")
+
+            if st.button("➕ 매핑 추가", type="primary", key="new_map_btn"):
+                if not new_qn.strip():
+                    st.error("상품명은 필수입니다.")
                 else:
-                    skus_list = [s.strip() for s in new_skus.split(',')]
-                    qtys_list = [q.strip() for q in new_qtys.split(',')]
-                    if len(qtys_list) == 1 and len(skus_list) > 1:
-                        qtys_list = ['1'] * len(skus_list)
-                    item_codes = ','.join(skus_list)  # 단순화: SKU코드를 품목코드로도 사용
-                    conn = pg.connect()
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                            INSERT INTO qoo10_product_mapping
-                            (qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (qoo10_name, qoo10_option) DO UPDATE SET
-                                item_codes = EXCLUDED.item_codes,
-                                sku_codes = EXCLUDED.sku_codes,
-                                quantities = EXCLUDED.quantities,
-                                enabled = EXCLUDED.enabled,
-                                updated_at = CURRENT_TIMESTAMP
-                        """, (new_name.strip(), new_option.strip(), item_codes,
-                              ','.join(skus_list), ','.join(qtys_list), new_enabled))
-                    conn.commit()
-                    conn.close()
-                    st.success("저장됨. 새로고침하세요.")
+                    valid = new_edited.dropna(subset=['KSE 상품 (품목)'])
+                    if valid.empty:
+                        st.error("최소 1개 품목이 필요합니다.")
+                    else:
+                        payload = []
+                        for _, r in valid.iterrows():
+                            name = r['KSE 상품 (품목)']
+                            code = sku_name_to_code.get(name, '')
+                            payload.append((code, name, int(r['수량'] or 1)))
+                        try:
+                            qgen.add_mapping(new_qn.strip(), new_qo.strip(), payload, enabled=new_enabled)
+                            st.success("추가됨")
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"실패: {ex}")
 
     st.stop()
 
