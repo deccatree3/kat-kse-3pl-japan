@@ -244,6 +244,57 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
     return outbound_rows, errors, addr_changes
 
 
+def compute_audit(qsm_rows: List[Dict], outbound_rows: List[Dict],
+                  mappings: Dict) -> Dict:
+    """
+    표1 시트 검수 지표 (row 2~5) 계산.
+    OMS 업로드 결과와 수치 비교하는 용도.
+    """
+    # enabled QSM 행만
+    enabled_qsm = []
+    for q in qsm_rows:
+        name = (q.get('상품명') or '').strip()
+        option = (q.get('옵션정보') or '').strip()
+        m = mappings.get((name, option))
+        if m and m['enabled']:
+            enabled_qsm.append((q, m))
+
+    # 1. 총 상품 수량 = SUM of mapping 수량 합 (template D열 = 수량 컬럼)
+    total_item_qty = 0
+    # 2. 주문 업로드 개수 = SUM of SKU 개수 (output row 수)
+    upload_row_count = 0
+    for _, m in enabled_qsm:
+        for sku_code, sku_qty in zip(m['sku_codes'], m['quantities']):
+            if sku_code and sku_code != '-':
+                total_item_qty += sku_qty
+                upload_row_count += 1
+
+    # 3. 송장번호 개수 = unique 장바구니번호 (enabled QSM)
+    unique_carts = len({(q.get('장바구니번호') or '').strip() for q, _ in enabled_qsm
+                        if (q.get('장바구니번호') or '').strip()})
+    # 4. 주문번호 개수 = unique QSM 주문번호 (enabled QSM)
+    unique_orders = len({(q.get('주문번호') or '').strip() for q, _ in enabled_qsm
+                         if (q.get('주문번호') or '').strip()})
+
+    # 실제 출고 PCS = SUM of 予定数量 (QSM수량 × 매핑수량)
+    total_picking_pcs = sum(int(r.get('予定数量') or 0) for r in outbound_rows)
+
+    # outbound_rows 검증
+    outbound_carts = len({r['注文番号'] for r in outbound_rows if r.get('注文番号')})
+    outbound_rows_count = len(outbound_rows)
+
+    return {
+        'total_item_qty': total_item_qty,              # 총 상품 수량 (매핑 수량 합)
+        'upload_row_count': upload_row_count,          # 주문 업로드 개수 (KSE row)
+        'unique_carts': unique_carts,                  # 송장번호 개수
+        'unique_orders': unique_orders,                # 주문번호 개수 (QSM)
+        'total_picking_pcs': total_picking_pcs,        # 실제 출고 PCS (×QSM수량)
+        'check_total_match_count': total_item_qty == upload_row_count,
+        'check_carts_match': unique_carts == outbound_carts,
+        'check_rows_match': upload_row_count == outbound_rows_count,
+    }
+
+
 def build_outbound_xlsx(outbound_rows: List[Dict]) -> bytes:
     """
     원본 템플릿을 로드해 서식(컬럼 너비, 헤더 스타일, 폰트, 색상 등)을 그대로 보존한 채

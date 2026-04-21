@@ -482,11 +482,40 @@ if menu == "📤 출고요청서 (Qoo10)":
 
                 mappings = qgen.load_mappings()
                 out_rows, errors, addr_changes = qgen.generate_outbound_rows(rows, mappings)
+                audit = qgen.compute_audit(rows, out_rows, mappings)
 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("변환된 Outbound 행", len(out_rows))
-                c2.metric("에러 (미매핑 등)", len(errors))
-                c3.metric("주소 정제", len(addr_changes))
+                st.markdown("#### 📊 검수 지표 (OMS 업로드 결과와 대조)")
+                st.caption("이 수치를 기록해두고 OMS 업로드 후 응답과 비교하세요.")
+
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                def _chip(ok: bool) -> str:
+                    return "✅" if ok else "⚠️"
+
+                mc1.metric(
+                    "총 상품 수량",
+                    audit['total_item_qty'],
+                    help="매핑 수량 합 (SKU 단위)",
+                )
+                mc2.metric(
+                    "주문 업로드 개수",
+                    f"{audit['upload_row_count']} {_chip(audit['check_rows_match'])}",
+                    help="KSE OMS 업로드될 row 개수",
+                )
+                mc3.metric(
+                    "송장번호 개수",
+                    f"{audit['unique_carts']} {_chip(audit['check_carts_match'])}",
+                    help="KSE OMS 주문(출고) 요청 개수 = 고유 장바구니번호",
+                )
+                mc4.metric(
+                    "주문번호 개수",
+                    audit['unique_orders'],
+                    help="QSM에 송장번호 업로드할 주문번호 개수",
+                )
+
+                st.caption(
+                    f"🚚 실제 출고 PCS (予定数量 합계): **{audit['total_picking_pcs']}** · "
+                    f"에러 **{len(errors)}건** · 주소 정제 **{len(addr_changes)}건**"
+                )
 
                 if errors:
                     st.warning("매핑되지 않은 주문이 있습니다. 먼저 **🔧 상품 매핑** 탭에서 추가하세요.")
@@ -497,6 +526,8 @@ if menu == "📤 출고요청서 (Qoo10)":
                     with st.expander(f"ℹ️ 주소에서 특수문자 제거 ({len(addr_changes)}건)", expanded=False):
                         st.caption("★ ◆ ♠ 등 배송 라벨 출력 시 문제될 수 있는 특수문자만 제거. 숫자/하이픈/한자 등은 보존됩니다.")
                         st.dataframe(pd.DataFrame(addr_changes), width="stretch", hide_index=True)
+
+                st.markdown("---")
 
                 if out_rows:
                     df_out = pd.DataFrame(out_rows)
