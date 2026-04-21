@@ -611,51 +611,68 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭2: QSM 송장번호 업로드 양식 ───
     with tab_waybill:
-        st.markdown("QSM **brief.csv**와 송장번호 매핑을 합쳐 QSM 업로드용 CSV를 생성합니다.")
+        st.markdown("QSM **brief.csv** + KSE OMS **주문(출고&입고) 내역 xlsx** → QSM 업로드용 CSV 생성")
+        st.caption("두 파일 모두 필수입니다.")
 
-        brief_file = st.file_uploader(
-            "QSM brief.csv 업로드", type=['csv'], key="qoo10_brief"
-        )
-
-        waybill_map = {}
-        if brief_file:
-            brief_rows = qgen.parse_qsm_csv(brief_file.getvalue())
-            cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
-
-            st.markdown("**KSE OMS 다운로드 파일 업로드**")
-            oms_file = st.file_uploader(
-                "KSE OMS 주문(출고&입고) 내역 xlsx",
-                type=['xlsx'], key="oms_waybill_xlsx",
-                help="KSE OMS에서 내려받은 '주문 번호' ↔ '운송장 번호' 자료. 취소 건은 자동 제외됨.",
-                label_visibility="collapsed",
+        col_a, col_b = st.columns(2)
+        with col_a:
+            brief_file = st.file_uploader(
+                "① QSM brief.csv *",
+                type=['csv'], key="qoo10_brief",
+                help="QSM에서 다운받은 송장번호 업로드 양식 (송장번호 컬럼 비어있음)",
             )
-            if oms_file:
-                try:
-                    oms_map = qgen.parse_kse_oms_waybill(oms_file.getvalue())
-                    st.info(f"KSE OMS 파일에서 {len(oms_map)}건 송장번호 추출 (취소건 제외)")
-                    for c in cart_nos:
-                        if c in oms_map:
-                            waybill_map[c] = oms_map[c]
-                    st.success(f"brief 기준 매칭: {len(waybill_map)}/{len(cart_nos)}건")
-                    if len(waybill_map) < len(cart_nos):
-                        missing = [c for c in cart_nos if c not in waybill_map]
-                        st.warning(f"미매칭 (KSE 출고 미완료 or 취소 가능성): {', '.join(missing)}")
-                except Exception as e:
-                    st.error(f"파일 파싱 실패: {e}")
+        with col_b:
+            oms_file = st.file_uploader(
+                "② KSE OMS 주문(출고&입고) 내역.xlsx *",
+                type=['xlsx'], key="oms_waybill_xlsx",
+                help="KSE OMS에서 내려받은 주문번호↔송장번호 자료 (취소건 자동 제외)",
+            )
 
-        if brief_file and waybill_map:
-            if st.button("송장번호 채워진 CSV 생성", width="stretch", type="primary"):
-                csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_file.getvalue(), waybill_map)
-                today_str = datetime.date.today().strftime('%Y%m%d')
-                st.download_button(
-                    f"📥 QSM_waybill_{today_str}.csv 다운로드",
-                    data=csv_bytes,
-                    file_name=f"QSM_waybill_{today_str}.csv",
-                    mime="text/csv",
-                    width="stretch",
-                )
-                if missing:
-                    st.warning(f"송장번호 미입력 {len(missing)}건: {', '.join(missing)}")
+        # 둘 다 올라와야 진행
+        if not brief_file or not oms_file:
+            missing_files = []
+            if not brief_file:
+                missing_files.append("QSM brief.csv")
+            if not oms_file:
+                missing_files.append("KSE OMS xlsx")
+            st.info(f"⚠️ 필수 파일 업로드 필요: {', '.join(missing_files)}")
+        else:
+            waybill_map = {}
+            try:
+                brief_rows = qgen.parse_qsm_csv(brief_file.getvalue())
+                cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
+
+                oms_map = qgen.parse_kse_oms_waybill(oms_file.getvalue())
+                for c in cart_nos:
+                    if c in oms_map:
+                        waybill_map[c] = oms_map[c]
+
+                c1, c2, c3 = st.columns(3)
+                c1.metric("QSM brief 주문", len(cart_nos))
+                c2.metric("KSE OMS 송장 추출", len(oms_map))
+                c3.metric("매칭 성공", f"{len(waybill_map)}/{len(cart_nos)}")
+
+                if len(waybill_map) < len(cart_nos):
+                    missing = [c for c in cart_nos if c not in waybill_map]
+                    st.warning(f"미매칭 (KSE 출고 미완료 or 취소 가능성): {', '.join(missing)}")
+
+                if waybill_map:
+                    csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_file.getvalue(), waybill_map)
+                    today_str = datetime.date.today().strftime('%Y%m%d')
+                    st.download_button(
+                        f"📥 QSM_waybill_{today_str}.csv 다운로드",
+                        data=csv_bytes,
+                        file_name=f"QSM_waybill_{today_str}.csv",
+                        mime="text/csv",
+                        width="stretch",
+                        type="primary",
+                    )
+                    if missing:
+                        st.warning(f"생성된 CSV 중 송장번호 미입력 {len(missing)}건: {', '.join(missing)}")
+                else:
+                    st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
+            except Exception as e:
+                st.error(f"처리 중 오류: {e}")
 
     # ─── 탭3: 상품 매핑 관리 ───
     with tab_mapping:
