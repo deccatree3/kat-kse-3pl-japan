@@ -399,6 +399,35 @@ def build_outbound_xlsx(outbound_rows: List[Dict]) -> bytes:
     return out.getvalue()
 
 
+def parse_kse_oms_waybill(xlsx_bytes: bytes) -> Dict[str, str]:
+    """
+    KSE OMS "주문(출고&입고) 내역" xlsx 파일 → {주문번호: 송장번호} 매핑.
+    주문번호(col8) = QSM 장바구니번호(=Outbound 注文番号)
+    운송장번호(col42) = Slack/QSM에 넘길 송장번호
+    """
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
+    ws = wb.active
+    # 헤더 위치 검증 (보통 row1)
+    hdr = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+    try:
+        order_col = hdr.index('주문 번호') + 1
+        waybill_col = hdr.index('운송장 번호') + 1
+        cancel_col = hdr.index('주문 취소 여부') + 1 if '주문 취소 여부' in hdr else None
+    except ValueError:
+        wb.close()
+        raise RuntimeError("'주문 번호' 또는 '운송장 번호' 컬럼을 찾을 수 없습니다")
+
+    mapping = {}
+    for r in range(2, ws.max_row + 1):
+        order_no = ws.cell(r, order_col).value
+        waybill = ws.cell(r, waybill_col).value
+        cancelled = ws.cell(r, cancel_col).value if cancel_col else None
+        if order_no and waybill and str(cancelled).strip() != '네':
+            mapping[str(order_no).strip()] = str(waybill).strip()
+    wb.close()
+    return mapping
+
+
 def build_qsm_waybill_csv(brief_content: bytes, waybill_map: Dict[str, str]) -> bytes:
     """
     brief.csv bytes + 장바구니번호→송장번호 매핑 → QSM 업로드용 CSV bytes.

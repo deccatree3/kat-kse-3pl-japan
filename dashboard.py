@@ -619,8 +619,10 @@ if menu == "📤 출고요청서 (Qoo10)":
 
         st.markdown("**장바구니번호 → 송장번호 매핑**")
         wb_method = st.radio(
-            "입력 방식", ["수동 입력 (표)", "KSE ORDER_LIST에서 자동 조회"],
-            horizontal=True, label_visibility="collapsed"
+            "입력 방식",
+            ["KSE OMS 다운로드 파일 업로드", "DB(shipments)에서 자동 조회", "수동 입력 (표)"],
+            horizontal=True, label_visibility="collapsed",
+            help="권장: KSE OMS에서 내려받은 '주문(출고&입고) 내역' xlsx 파일 업로드"
         )
 
         waybill_map = {}
@@ -628,21 +630,27 @@ if menu == "📤 출고요청서 (Qoo10)":
             brief_rows = qgen.parse_qsm_csv(brief_file.getvalue())
             cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
 
-            if wb_method == "수동 입력 (표)":
-                df_wb = pd.DataFrame({
-                    '장바구니번호': cart_nos,
-                    '수취인명': [r.get('수취인명', '') for r in brief_rows],
-                    '송장번호': [''] * len(brief_rows),
-                })
-                edited = st.data_editor(
-                    df_wb, width="stretch", hide_index=True,
-                    disabled=['장바구니번호', '수취인명'],
+            if wb_method == "KSE OMS 다운로드 파일 업로드":
+                oms_file = st.file_uploader(
+                    "KSE OMS 주문(출고&입고) 내역 xlsx 업로드",
+                    type=['xlsx'], key="oms_waybill_xlsx",
+                    help="주문 번호(장바구니번호) ↔ 운송장 번호 추출"
                 )
-                for _, r in edited.iterrows():
-                    if r['송장번호']:
-                        waybill_map[r['장바구니번호']] = str(r['송장번호']).strip()
-            else:
-                # shipments 테이블에서 장바구니번호 → waybill 매핑
+                if oms_file:
+                    try:
+                        oms_map = qgen.parse_kse_oms_waybill(oms_file.getvalue())
+                        st.info(f"KSE OMS 파일에서 {len(oms_map)}건 송장번호 추출")
+                        for c in cart_nos:
+                            if c in oms_map:
+                                waybill_map[c] = oms_map[c]
+                        st.success(f"brief 기준 매칭: {len(waybill_map)}/{len(cart_nos)}건")
+                        if len(waybill_map) < len(cart_nos):
+                            missing = [c for c in cart_nos if c not in waybill_map]
+                            st.warning(f"미매칭 (KSE 출고 미완료 or 취소 가능성): {', '.join(missing)}")
+                    except Exception as e:
+                        st.error(f"파일 파싱 실패: {e}")
+
+            elif wb_method == "DB(shipments)에서 자동 조회":
                 if cart_nos:
                     placeholders = ','.join(['%s'] * len(cart_nos))
                     df = pg.query_df(f"""
@@ -657,6 +665,20 @@ if menu == "📤 출고요청서 (Qoo10)":
                     if len(waybill_map) < len(cart_nos):
                         missing = [c for c in cart_nos if c not in waybill_map]
                         st.warning(f"미매칭: {', '.join(missing)}")
+
+            else:  # 수동 입력
+                df_wb = pd.DataFrame({
+                    '장바구니번호': cart_nos,
+                    '수취인명': [r.get('수취인명', '') for r in brief_rows],
+                    '송장번호': [''] * len(brief_rows),
+                })
+                edited = st.data_editor(
+                    df_wb, width="stretch", hide_index=True,
+                    disabled=['장바구니번호', '수취인명'],
+                )
+                for _, r in edited.iterrows():
+                    if r['송장번호']:
+                        waybill_map[r['장바구니번호']] = str(r['송장번호']).strip()
 
         if brief_file and waybill_map:
             if st.button("송장번호 채워진 CSV 생성", width="stretch", type="primary"):
