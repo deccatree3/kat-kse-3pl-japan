@@ -472,12 +472,33 @@ if menu == "📤 출고요청서 (Qoo10)":
     # ─── 탭1: 출고요청서 생성 ───
     with tab_gen:
         st.markdown("QSM에서 다운받은 **detail.csv**를 업로드하면 KSE OMS 업로드용 `Outbound_ship_conf.xlsx`를 생성합니다.")
-        det_file = st.file_uploader(
-            "QSM detail.csv 업로드", type=['csv'], key="qoo10_detail"
-        )
-        if det_file:
+
+        # 업로드 파일을 session_state에 고정 (탭 전환/재렌더 시에도 유지)
+        up_col, clear_col = st.columns([4, 1])
+        with up_col:
+            det_file_new = st.file_uploader(
+                "QSM detail.csv 업로드", type=['csv'], key="qoo10_detail_upload",
+                help="한 번 업로드한 후 매핑 추가·주소 승인 중에도 자료가 유지됩니다."
+            )
+        with clear_col:
+            st.markdown("&nbsp;", unsafe_allow_html=True)
+            if st.button("🗑 초기화", help="업로드 파일/진행 상태 초기화"):
+                for k in ('qoo10_detail_bytes', 'qoo10_detail_name'):
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+        # 새 업로드가 있으면 session에 저장
+        if det_file_new is not None:
+            st.session_state['qoo10_detail_bytes'] = det_file_new.getvalue()
+            st.session_state['qoo10_detail_name'] = det_file_new.name
+
+        det_bytes = st.session_state.get('qoo10_detail_bytes')
+        det_name = st.session_state.get('qoo10_detail_name')
+
+        if det_bytes:
+            st.caption(f"📄 현재 파일: **{det_name}** (지속됨)")
             try:
-                rows = qgen.parse_qsm_csv(det_file.getvalue())
+                rows = qgen.parse_qsm_csv(det_bytes)
                 st.info(f"QSM 주문 {len(rows)}건 인식")
 
                 mappings = qgen.load_mappings()
@@ -527,7 +548,12 @@ if menu == "📤 출고요청서 (Qoo10)":
                         st.dataframe(pd.DataFrame(disabled_errors), width="stretch", hide_index=True)
 
                     if missing_errors:
-                        st.error(f"🆕 **신규 상품 매핑 필요** ({len(missing_errors)}건). 아래에서 등록 후 페이지를 새로고침하세요.")
+                        # 고유 (상품명, 옵션) 조합 수 계산 (진행률 표시용)
+                        uniq_missing_keys = {(e['상품명'], e['옵션정보']) for e in missing_errors}
+                        st.error(
+                            f"🆕 **신규 상품 매핑 필요**: 주문 {len(missing_errors)}건 (고유 상품/옵션 조합 {len(uniq_missing_keys)}개). "
+                            "아래에서 등록하면 자동으로 페이지가 갱신되며 **파일은 유지**됩니다."
+                        )
 
                         # 고유 (상품명, 옵션) 조합만 추출
                         seen = set()
@@ -755,7 +781,11 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭3: 상품 매핑 관리 ───
     with tab_mapping:
-        st.markdown("Qoo10 상품/옵션 조합 ↔ KSE SKU 매핑 관리. 새 상품 옵션이 나오면 여기서 추가하세요.")
+        st.markdown("Qoo10 상품/옵션 ↔ KSE SKU 매핑 조회/편집.")
+        st.caption(
+            "💡 **신규 상품은 탭 ①에서 파일 업로드하면 인라인으로 추가**하는 것이 편리합니다. "
+            "여기는 기존 매핑의 조회·수정·수동 등록 용도."
+        )
 
         maps_df = pg.query_df("""
             SELECT qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled
@@ -764,7 +794,7 @@ if menu == "📤 출고요청서 (Qoo10)":
         st.caption(f"총 {len(maps_df)}개 매핑 (활성 {int(maps_df['enabled'].sum())}개)")
         st.dataframe(maps_df, width="stretch", hide_index=True)
 
-        with st.expander("➕ 새 매핑 추가"):
+        with st.expander("➕ 수동 매핑 추가 (고급)"):
             col1, col2 = st.columns(2)
             with col1:
                 new_name = st.text_area("Qoo10 상품명", height=80)
