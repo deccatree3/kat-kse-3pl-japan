@@ -79,6 +79,52 @@ OUTBOUND_HEADERS = [
 ]
 
 
+def load_kse_sku_catalog() -> List[Dict]:
+    """DB에 저장된 KSE SKU 카탈로그 (stock_snapshots + shipments 병합).
+    반환: [{sku_code, sku_name}, ...] (중복 제거, sku_name ASC)
+    """
+    conn = pg.connect(autocommit=True)
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT sku_code, sku_name FROM (
+                SELECT sku_code, sku_name FROM stock_snapshots
+                UNION
+                SELECT sku_code, sku_name FROM shipments
+            ) t
+            WHERE sku_code IS NOT NULL AND sku_code != ''
+              AND sku_name IS NOT NULL
+            ORDER BY sku_name
+        """)
+        rows = cur.fetchall()
+    conn.close()
+    return [{'sku_code': r[0], 'sku_name': r[1]} for r in rows]
+
+
+def add_mapping(qoo10_name: str, qoo10_option: str, skus: List[Tuple[str, str, int]]):
+    """
+    새 매핑 저장. skus = [(sku_code, sku_name, qty), ...]
+    """
+    item_codes = ','.join(s[1] for s in skus)  # 사람이 읽는 상품명 (템플릿 관례)
+    sku_codes = ','.join(s[0] for s in skus)
+    quantities = ','.join(str(s[2]) for s in skus)
+
+    conn = pg.connect()
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO qoo10_product_mapping
+            (qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled)
+            VALUES (%s, %s, %s, %s, %s, TRUE)
+            ON CONFLICT (qoo10_name, qoo10_option) DO UPDATE SET
+                item_codes = EXCLUDED.item_codes,
+                sku_codes = EXCLUDED.sku_codes,
+                quantities = EXCLUDED.quantities,
+                enabled = TRUE,
+                updated_at = CURRENT_TIMESTAMP
+        """, (qoo10_name, qoo10_option, item_codes, sku_codes, quantities))
+    conn.commit()
+    conn.close()
+
+
 def load_mappings() -> Dict[Tuple[str, str], Dict]:
     """DB에서 상품 매핑 로드. key=(상품명, 옵션)"""
     conn = pg.connect(autocommit=True)
