@@ -114,6 +114,27 @@ def normalize_postal(code: str) -> str:
     return code.lstrip("'").strip()
 
 
+def clean_special_chars(text: str) -> str:
+    """
+    템플릿 VBA Module1.CleanSpecialChars 포팅.
+
+    삭제 범위:
+      - U+2000~U+206F (8192~8303): 일반 문장 부호 (특수 공백, em/en dash, curly quotes 등)
+      - U+2600~U+26FF (9728~9983): 기호 및 도형 (★ ◆ ♠ ✓ 등)
+
+    보존: 그 외 모든 문자 (일본어/한자/숫자/하이픈-/전각장음ー/ｰ 등).
+    """
+    if not text:
+        return ''
+    out_chars = []
+    for ch in text:
+        cp = ord(ch)
+        if 8192 <= cp <= 8303 or 9728 <= cp <= 9983:
+            continue  # 삭제
+        out_chars.append(ch)
+    return ''.join(out_chars)
+
+
 def normalize_order_date(qsm_date: str) -> str:
     """2026/04/15 19:12:16 → 20260415"""
     if not qsm_date:
@@ -127,7 +148,7 @@ def normalize_order_date(qsm_date: str) -> str:
         return digits[:8] if len(digits) >= 8 else qsm_date
 
 
-def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[Dict], List[Dict]]:
+def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[Dict], List[Dict], List[Dict]]:
     """
     QSM detail 행들 → Outbound 행들 변환.
     Power Query 로직 준수:
@@ -136,11 +157,13 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
       3. 予定数量 = QSM수량 × 매핑 SKU당수량
       4. 정렬: 장바구니번호 ASC, 주문번호 ASC, 품목(SKU) ASC
       5. 注文番号는 장바구니번호 사용 (같은 장바구니 = 합포장)
-    반환: (출고 행들, 미매핑/에러 행들)
+      6. 주소는 VBA CleanSpecialChars 적용 (★ ◆ 등 제거)
+    반환: (출고 행들, 미매핑/에러 행들, 주소 정제 변경 이력)
     """
     today = datetime.date.today().strftime('%Y%m%d')
     outbound_rows = []
     errors = []
+    addr_changes = []  # 정제로 변경된 주소 목록 (사용자 확인용)
 
     for q in qsm_rows:
         name = (q.get('상품명') or '').strip()
@@ -165,6 +188,22 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
             })
             continue
 
+        # 주소 특수문자 정제 (VBA CleanSpecialChars)
+        orig_addr = (q.get('주소') or '').strip()
+        clean_addr = clean_special_chars(orig_addr)
+        if orig_addr != clean_addr:
+            addr_changes.append({
+                '장바구니번호': cart_no, '주문번호': order_no,
+                '원본주소': orig_addr, '정제주소': clean_addr,
+            })
+
+        # 전화번호: 수취인핸드폰 > 수취인전화 (값이 "-"면 skip)
+        tel_cands = [
+            q.get('수취인핸드폰번호', '').strip(),
+            q.get('수취인전화번호', '').strip(),
+        ]
+        tel = next((t for t in tel_cands if t and t != '-'), '')
+
         # SKU별 1행 생성 (세트 상품은 N행으로 분할)
         for sku_code, sku_unit_qty in zip(m['sku_codes'], m['quantities']):
             if not sku_code or sku_code == '-':
@@ -178,17 +217,17 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
             row['予定数量'] = sku_unit_qty * qsm_qty  # 핵심: 매핑수량 × QSM수량
             row['注文番号'] = cart_no  # 장바구니번호 사용 (합포장)
             row['仕入先名/受取人名'] = q.get('수취인명', '')
-            row['電話番号'] = q.get('수취인핸드폰번호', '') or q.get('수취인전화번호', '')
+            row['電話番号'] = tel
             row['国コード'] = 'JPN'
             row['郵便番号コード'] = normalize_postal(q.get('우편번호', ''))
-            row['基本住所'] = q.get('주소', '')
+            row['基本住所'] = clean_addr
             row['配送会社'] = '320'  # 사가와
             row['注文配送運賃タイプ'] = '10'  # 선불
             row['注文先名'] = q.get('수취인명', '')
-            row['注文先電話番号'] = q.get('수취인핸드폰번호', '') or q.get('수취인전화번호', '')
+            row['注文先電話番号'] = tel
             row['注文先国コード'] = 'JPN'
             row['注文先郵便番号'] = normalize_postal(q.get('우편번호', ''))
-            row['注文先基本住所'] = q.get('주소', '')
+            row['注文先基本住所'] = clean_addr
             # 정렬용 내부 키 (마지막에 제거됨)
             row['_sort_cart'] = cart_no
             row['_sort_order'] = order_no
@@ -202,7 +241,7 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
         r.pop('_sort_order', None)
         r.pop('_sort_sku', None)
 
-    return outbound_rows, errors
+    return outbound_rows, errors, addr_changes
 
 
 def build_outbound_xlsx(outbound_rows: List[Dict]) -> bytes:

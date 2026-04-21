@@ -481,16 +481,22 @@ if menu == "📤 출고요청서 (Qoo10)":
                 st.info(f"QSM 주문 {len(rows)}건 인식")
 
                 mappings = qgen.load_mappings()
-                out_rows, errors = qgen.generate_outbound_rows(rows, mappings)
+                out_rows, errors, addr_changes = qgen.generate_outbound_rows(rows, mappings)
 
-                c1, c2 = st.columns(2)
+                c1, c2, c3 = st.columns(3)
                 c1.metric("변환된 Outbound 행", len(out_rows))
                 c2.metric("에러 (미매핑 등)", len(errors))
+                c3.metric("주소 정제", len(addr_changes))
 
                 if errors:
                     st.warning("매핑되지 않은 주문이 있습니다. 먼저 **🔧 상품 매핑** 탭에서 추가하세요.")
                     err_df = pd.DataFrame(errors)
                     st.dataframe(err_df, width="stretch", hide_index=True)
+
+                if addr_changes:
+                    with st.expander(f"ℹ️ 주소에서 특수문자 제거 ({len(addr_changes)}건)", expanded=False):
+                        st.caption("★ ◆ ♠ 등 배송 라벨 출력 시 문제될 수 있는 특수문자만 제거. 숫자/하이픈/한자 등은 보존됩니다.")
+                        st.dataframe(pd.DataFrame(addr_changes), width="stretch", hide_index=True)
 
                 if out_rows:
                     df_out = pd.DataFrame(out_rows)
