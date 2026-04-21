@@ -114,42 +114,68 @@ def normalize_postal(code: str) -> str:
     return code.lstrip("'").strip()
 
 
-def clean_special_chars(text: str) -> str:
+HYPHEN_LIKE = {
+    0x2010: 'HYPHEN',
+    0x2011: 'NON-BREAKING HYPHEN',
+    0x2012: 'FIGURE DASH',
+    0x2013: 'EN DASH',
+    0x2014: 'EM DASH',
+    0x2015: 'HORIZONTAL BAR',
+}
+
+
+def _char_reason(ch: str) -> str:
+    """제거/치환된 문자의 의미 반환 (사람이 읽을 수 있는 설명)."""
+    cp = ord(ch)
+    if cp in HYPHEN_LIKE:
+        return f"'{ch}'({HYPHEN_LIKE[cp]}) → '-' 치환"
+    if 8192 <= cp <= 8303:
+        # 자주 나오는 것들 친숙한 이름 부여
+        names = {
+            0x2003: 'EM SPACE',
+            0x2009: 'THIN SPACE',
+            0x200B: 'ZERO-WIDTH SPACE',
+            0x2018: 'LEFT SINGLE QUOTE',
+            0x2019: 'RIGHT SINGLE QUOTE',
+            0x201C: 'LEFT DOUBLE QUOTE',
+            0x201D: 'RIGHT DOUBLE QUOTE',
+            0x2026: 'ELLIPSIS (…)',
+        }
+        name = names.get(cp, f'특수 문장부호 U+{cp:04X}')
+        return f"'{ch}'({name}) 제거"
+    if 9728 <= cp <= 9983:
+        return f"'{ch}'(기호/도형 U+{cp:04X}) 제거"
+    return f"'{ch}' 변경"
+
+
+def clean_special_chars(text: str) -> Tuple[str, List[str]]:
     """
     템플릿 VBA Module1.CleanSpecialChars 포팅 + 주소 보호 개선.
 
     삭제 범위:
-      - U+2000~U+206F (8192~8303): 일반 문장 부호 (특수 공백, curly quotes 등)
-      - U+2600~U+26FF (9728~9983): 기호 및 도형 (★ ◆ ♠ ✓ 등)
+      - U+2000~U+206F: 일반 문장 부호
+      - U+2600~U+26FF: 기호 및 도형
 
-    예외 (주소 왜곡 방지 - VBA 원본 동작보다 안전하게 개선):
-      - U+2010~U+2015 (하이픈/대시 계열)은 삭제 대신 일반 하이픈 '-'로 치환.
-        이유: 일본 주소에서 "１‐３" 같은 U+2010 하이픈이 흔히 쓰이는데
-        이를 삭제하면 "１３"이 되어 완전히 다른 주소가 됨.
+    예외 (주소 왜곡 방지):
+      - U+2010~U+2015 하이픈/대시 계열은 일반 '-'로 치환
 
-    보존: 그 외 모든 문자 (일본어/한자/숫자/하이픈-/전각장음ー/ｰ 등).
+    반환: (정제된 텍스트, 사유 리스트)
     """
     if not text:
-        return ''
-    # 하이픈/대시 계열 → 일반 '-'로 치환
-    HYPHEN_LIKE = {
-        0x2010,  # ‐ HYPHEN
-        0x2011,  # ‑ NON-BREAKING HYPHEN
-        0x2012,  # ‒ FIGURE DASH
-        0x2013,  # – EN DASH
-        0x2014,  # — EM DASH
-        0x2015,  # ― HORIZONTAL BAR
-    }
+        return '', []
+    reasons = []
     out_chars = []
     for ch in text:
         cp = ord(ch)
         if cp in HYPHEN_LIKE:
             out_chars.append('-')
+            reasons.append(_char_reason(ch))
         elif 8192 <= cp <= 8303 or 9728 <= cp <= 9983:
-            continue  # 삭제
+            reasons.append(_char_reason(ch))
+            # 삭제 (문자 추가 안 함)
         else:
             out_chars.append(ch)
-    return ''.join(out_chars)
+    return ''.join(out_chars), reasons
 
 
 def normalize_order_date(qsm_date: str) -> str:
@@ -207,11 +233,14 @@ def generate_outbound_rows(qsm_rows: List[Dict], mappings: Dict) -> Tuple[List[D
 
         # 주소 특수문자 정제 (VBA CleanSpecialChars)
         orig_addr = (q.get('주소') or '').strip()
-        clean_addr = clean_special_chars(orig_addr)
+        clean_addr, clean_reasons = clean_special_chars(orig_addr)
         if orig_addr != clean_addr:
+            # 중복 사유 제거 (같은 문자 여러 번이면 한 번만)
+            unique_reasons = list(dict.fromkeys(clean_reasons))
             addr_changes.append({
                 '장바구니번호': cart_no, '주문번호': order_no,
                 '원본주소': orig_addr, '정제주소': clean_addr,
+                '사유': ' / '.join(unique_reasons),
             })
 
         # 전화번호: 수취인핸드폰 > 수취인전화 (값이 "-"면 skip)

@@ -543,13 +543,17 @@ if menu == "📤 출고요청서 (Qoo10)":
                         column_config={
                             '장바구니번호': st.column_config.TextColumn(disabled=True, width="small"),
                             '주문번호': st.column_config.TextColumn(disabled=True, width="small"),
-                            '원본주소': st.column_config.TextColumn(disabled=True, width="large"),
-                            '정제주소': st.column_config.TextColumn(disabled=True, width="large"),
-                            '최종주소': st.column_config.TextColumn(required=True, width="large",
-                                help="수정이 필요하면 이 컬럼을 편집하세요"),
+                            '원본주소': st.column_config.TextColumn(disabled=True, width="medium"),
+                            '정제주소': st.column_config.TextColumn(disabled=True, width="medium"),
+                            '사유': st.column_config.TextColumn(disabled=True, width="medium",
+                                help="원본에서 제거/치환된 문자와 이유"),
+                            '최종주소': st.column_config.TextColumn(required=True, width="medium",
+                                help="부적합하면 이 컬럼을 편집. 기본값=정제주소."),
                             '승인': st.column_config.CheckboxColumn(required=True),
                         },
                         hide_index=True, width="stretch",
+                        column_order=('장바구니번호', '주문번호', '원본주소', '정제주소',
+                                      '사유', '최종주소', '승인'),
                         key="addr_review",
                     )
 
