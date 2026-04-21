@@ -24,6 +24,8 @@ def connect(**kwargs) -> psycopg.Connection:
     dsn = get_dsn()
     if not dsn:
         raise RuntimeError("DATABASE_URL이 설정되지 않았습니다.")
+    # Supabase Transaction pooler는 prepared statements 비호환
+    kwargs.setdefault("prepare_threshold", None)
     return psycopg.connect(dsn, **kwargs)
 
 
