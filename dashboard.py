@@ -2,7 +2,6 @@
 KAT-KSE 3PL Japan 물류비 대시보드
 실행: streamlit run dashboard.py
 """
-import sqlite3
 import os
 import glob
 import json
@@ -15,7 +14,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import openpyxl
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "db", "logistics.db")
+from db import pg
+
 APP_CFG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 ALERT_CFG_PATH = os.path.join(os.path.dirname(__file__), "alerts", "config.json")
 
@@ -67,12 +67,20 @@ def send_slack_test(webhook_url):
 
 @st.cache_resource
 def get_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    return pg.connect(autocommit=True)
 
 
 def load_data(query, params=None):
+    # SQLite의 ? 파라미터를 Postgres %s로 자동 변환
+    query = query.replace("?", "%s")
     conn = get_conn()
-    return pd.read_sql_query(query, conn, params=params or [])
+    try:
+        return pg.query_df(query, params or (), conn=conn)
+    except Exception:
+        # 연결 끊김 시 재연결
+        get_conn.clear()
+        conn = get_conn()
+        return pg.query_df(query, params or (), conn=conn)
 
 
 def fmt_month(ym):
@@ -82,16 +90,8 @@ def fmt_month(ym):
 @st.cache_data(ttl=60)
 def compute_stock_forecast():
     """DB에서 재고/출고 데이터 읽어 SKU별 잔여일수 계산"""
-    conn = get_conn()
-
-    # 최신 스냅샷
-    meta = pd.read_sql_query(
-        "SELECT key, value FROM stock_load_meta", conn
-    ).set_index('key')['value'].to_dict() if True else {}
     try:
-        latest = pd.read_sql_query(
-            "SELECT value FROM stock_load_meta WHERE key='latest_snapshot'", conn
-        )
+        latest = pg.query_df("SELECT value FROM stock_load_meta WHERE key='latest_snapshot'")
         snap_date = latest.iloc[0, 0] if not latest.empty else None
     except Exception:
         snap_date = None
@@ -99,19 +99,19 @@ def compute_stock_forecast():
     if not snap_date:
         return None, None, None, None
 
-    stock_df = pd.read_sql_query("""
-        SELECT sku_code AS 상품코드, sku_name AS 상품명,
-               total_qty AS 총재고, available_qty AS 가용재고
-        FROM stock_snapshots WHERE snapshot_date = ?
-    """, conn, params=[snap_date])
+    stock_df = pg.query_df("""
+        SELECT sku_code AS "상품코드", sku_name AS "상품명",
+               total_qty AS "총재고", available_qty AS "가용재고"
+        FROM stock_snapshots WHERE snapshot_date = %s
+    """, [snap_date])
 
     if stock_df.empty:
         return None, None, None, None
 
-    ship_range = pd.read_sql_query("""
+    ship_range = pg.query_df("""
         SELECT MIN(ship_date) AS dmin, MAX(ship_date) AS dmax
         FROM shipments WHERE ship_date IS NOT NULL
-    """, conn)
+    """)
 
     dmin_s = ship_range.iloc[0]['dmin']
     dmax_s = ship_range.iloc[0]['dmax']
@@ -124,10 +124,10 @@ def compute_stock_forecast():
         stock_df['상태'] = '⚪ 판단불가'
         return stock_df, snap_date, None, None
 
-    ship_agg = pd.read_sql_query("""
+    ship_agg = pg.query_df("""
         SELECT sku_code, SUM(qty) AS total
         FROM shipments GROUP BY sku_code
-    """, conn)
+    """)
     shipments = dict(zip(ship_agg['sku_code'], ship_agg['total']))
 
     dmin = datetime.datetime.strptime(dmin_s, '%Y%m%d').date()
@@ -164,9 +164,8 @@ def compute_stock_forecast():
 
 
 def get_stock_load_meta():
-    conn = get_conn()
     try:
-        df = pd.read_sql_query("SELECT key, value FROM stock_load_meta", conn)
+        df = pg.query_df("SELECT key, value FROM stock_load_meta")
         return dict(zip(df['key'], df['value']))
     except Exception:
         return {}
@@ -175,18 +174,17 @@ def get_stock_load_meta():
 @st.cache_data(ttl=60)
 def compute_kat_side(year_month: str) -> dict:
     """shipments 테이블에서 KATCHERS 측 대조 값을 자동 계산 (월별 필터)"""
-    conn = get_conn()
     pattern = f"{year_month}%"
     try:
-        b2c = pd.read_sql_query("""
+        b2c = pg.query_df("""
             SELECT COUNT(DISTINCT waybill) AS n, COALESCE(SUM(qty), 0) AS pcs
-            FROM shipments WHERE ship_type='B2C' AND ship_date LIKE ?
-        """, conn, params=[pattern]).iloc[0]
+            FROM shipments WHERE ship_type='B2C' AND ship_date LIKE %s
+        """, [pattern]).iloc[0]
 
-        b2b = pd.read_sql_query("""
+        b2b = pg.query_df("""
             SELECT COUNT(DISTINCT waybill) AS n
-            FROM shipments WHERE ship_type='B2B' AND ship_date LIKE ?
-        """, conn, params=[pattern]).iloc[0]
+            FROM shipments WHERE ship_type='B2B' AND ship_date LIKE %s
+        """, [pattern]).iloc[0]
     except Exception:
         return {}
 

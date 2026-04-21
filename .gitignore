@@ -1,5 +1,6 @@
-# Sensitive config (webhook URL) - NEVER commit
+# Sensitive config - NEVER commit (webhook URL, database URL)
 alerts/config.json
+config.json
 
 # Raw files (주문/재고 원본, 개인정보 포함 가능)
 raw/

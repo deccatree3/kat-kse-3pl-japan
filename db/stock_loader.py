@@ -7,15 +7,19 @@ import sys
 import io
 import json
 import glob
-import sqlite3
 import datetime
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import openpyxl
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, "db", "logistics.db")
+# 모듈 경로 (patched: package import)
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
+import pg as _pg  # db/pg.py
+
+BASE_DIR = os.path.dirname(_THIS_DIR)
 APP_CFG_PATH = os.path.join(BASE_DIR, "config.json")
 
 
@@ -68,7 +72,11 @@ CREATE INDEX IF NOT EXISTS idx_shipments_date ON shipments(ship_date);
 
 
 def ensure_schema(conn):
-    conn.executescript(SCHEMA)
+    with conn.cursor() as cur:
+        for stmt in SCHEMA.split(';'):
+            stmt = stmt.strip()
+            if stmt:
+                cur.execute(stmt)
     conn.commit()
 
 
@@ -91,7 +99,6 @@ def load_order_file(path, conn):
         qty = row[52]
         if not sku_code or not qty:
             continue
-        # 송장번호 없으면(B2B FBA 등) order_no를 대체 식별자로 사용
         if not waybill:
             waybill = f"NOWB_{order_no}"
         rows.append((
@@ -102,18 +109,26 @@ def load_order_file(path, conn):
         ))
     wb.close()
 
-    conn.executemany("""
-        INSERT OR REPLACE INTO shipments
-        (waybill, sku_code, order_no, ship_date, sku_name, qty, ship_type, source_file, loaded_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, rows)
+    with conn.cursor() as cur:
+        cur.executemany("""
+            INSERT INTO shipments
+            (waybill, sku_code, order_no, ship_date, sku_name, qty, ship_type, source_file, loaded_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (waybill, sku_code) DO UPDATE SET
+                order_no = EXCLUDED.order_no,
+                ship_date = EXCLUDED.ship_date,
+                sku_name = EXCLUDED.sku_name,
+                qty = EXCLUDED.qty,
+                ship_type = EXCLUDED.ship_type,
+                source_file = EXCLUDED.source_file,
+                loaded_at = EXCLUDED.loaded_at
+        """, rows)
     return len(rows)
 
 
 def load_stock_file(path, conn):
     """재고현황_*.xlsx 1개 → stock_snapshots (snapshot_date = 파일명에서 추출)"""
     base = os.path.basename(path)
-    # 파일명: 재고현황 내역_YYMMDDHHMMSS.xlsx → YYYY-MM-DD
     datestr = base.replace('재고현황 내역_', '').replace('.xlsx', '')[:6]
     try:
         yy = int(datestr[:2])
@@ -140,20 +155,26 @@ def load_stock_file(path, conn):
         ))
     wb.close()
 
-    conn.executemany("""
-        INSERT OR REPLACE INTO stock_snapshots
-        (snapshot_date, sku_code, sku_name, total_qty, available_qty, source_file, loaded_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, rows)
+    with conn.cursor() as cur:
+        cur.executemany("""
+            INSERT INTO stock_snapshots
+            (snapshot_date, sku_code, sku_name, total_qty, available_qty, source_file, loaded_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (snapshot_date, sku_code) DO UPDATE SET
+                sku_name = EXCLUDED.sku_name,
+                total_qty = EXCLUDED.total_qty,
+                available_qty = EXCLUDED.available_qty,
+                source_file = EXCLUDED.source_file,
+                loaded_at = EXCLUDED.loaded_at
+        """, rows)
     return snapshot_date, len(rows)
 
 
 def rebuild_all():
     raw_dir = _load_raw_dir()
-    conn = sqlite3.connect(DB_PATH)
+    conn = _pg.connect()
     ensure_schema(conn)
 
-    # 출고 파일 전체 재적재 (dedup은 PK로)
     order_files = []
     for pat in ["ORDER_LIST_*.xlsx", os.path.join("*", "ORDER_LIST_*.xlsx")]:
         order_files.extend(glob.glob(os.path.join(raw_dir, pat)))
@@ -164,7 +185,6 @@ def rebuild_all():
         print(f"[ORDER] {os.path.basename(f)}: {n} rows")
         total_rows += n
 
-    # 재고 파일 모두 적재 (스냅샷 일자별 보존)
     stock_files = glob.glob(os.path.join(raw_dir, "재고현황*.xlsx"))
     latest_snapshot = None
     for f in stock_files:
@@ -173,12 +193,17 @@ def rebuild_all():
         if latest_snapshot is None or snapshot_date > latest_snapshot:
             latest_snapshot = snapshot_date
 
-    # 메타데이터
     now = datetime.datetime.now().isoformat(timespec='seconds')
-    conn.execute("INSERT OR REPLACE INTO stock_load_meta VALUES ('last_loaded_at', ?)", (now,))
-    if latest_snapshot:
-        conn.execute("INSERT OR REPLACE INTO stock_load_meta VALUES ('latest_snapshot', ?)",
-                     (latest_snapshot,))
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO stock_load_meta (key, value) VALUES ('last_loaded_at', %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """, (now,))
+        if latest_snapshot:
+            cur.execute("""
+                INSERT INTO stock_load_meta (key, value) VALUES ('latest_snapshot', %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            """, (latest_snapshot,))
 
     conn.commit()
     conn.close()

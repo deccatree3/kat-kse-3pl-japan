@@ -21,8 +21,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install dependencies
+        run: pip install "psycopg[binary]>=3.1"
+
       - name: Run notifier
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_ENABLED: "1"
           SLACK_THRESHOLD_DAYS: "30"

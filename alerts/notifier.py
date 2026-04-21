@@ -8,18 +8,19 @@ import os
 import sys
 import io
 import json
-import sqlite3
 import datetime
 import urllib.request
 from collections import defaultdict
 
-# Windows cp949 방지
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, "db", "logistics.db")
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
+
+# db/pg.py 모듈 import
+sys.path.insert(0, os.path.join(BASE_DIR, "db"))
+import pg as _pg
 
 
 def load_config():
@@ -55,7 +56,7 @@ def save_state(state):
 
 def compute_forecast():
     """DB에서 재고/출고 읽어 SKU별 잔여일수 계산"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _pg.connect(autocommit=True)
     cur = conn.cursor()
 
     cur.execute("SELECT value FROM stock_load_meta WHERE key='latest_snapshot'")
@@ -67,7 +68,7 @@ def compute_forecast():
 
     cur.execute("""
         SELECT sku_code, sku_name, total_qty, available_qty
-        FROM stock_snapshots WHERE snapshot_date = ?
+        FROM stock_snapshots WHERE snapshot_date = %s
     """, (snap_date,))
     stock = [
         {'code': r[0], 'name': r[1], 'total': r[2], 'available': r[3]}
