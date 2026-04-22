@@ -531,7 +531,7 @@ if menu == "📤 출고요청서 (Qoo10)":
             column_config={
                 '구분': st.column_config.TextColumn(width="medium"),
                 '취합 경로': st.column_config.TextColumn(width="large"),
-                '취합여부': st.column_config.TextColumn(width=25),
+                '취합여부': st.column_config.TextColumn(width=8),
             },
         )
 
@@ -806,7 +806,7 @@ if menu == "📤 출고요청서 (Qoo10)":
             column_config={
                 '구분': st.column_config.TextColumn(width="medium"),
                 '취합 경로': st.column_config.TextColumn(width="large"),
-                '취합여부': st.column_config.TextColumn(width=70),
+                '취합여부': st.column_config.TextColumn(width=8),
             },
         )
 
