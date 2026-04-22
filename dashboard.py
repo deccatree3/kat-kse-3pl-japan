@@ -836,23 +836,9 @@ if menu == "📤 출고요청서 (Qoo10)":
 
             st.caption(f"📄 요약 파일: `{brief_name_t2}`")
 
-        # 2) 임시저장이 없으면 직접 업로드 fallback
+        # 2) 임시저장이 없으면 Tab ①로 안내
         else:
-            st.warning("임시저장된 brief 없음. Tab ①에서 업로드했거나 아래에서 직접 올리세요.")
-            direct_brief = st.file_uploader(
-                "요약(brief).csv 직접 업로드", type=['csv'], key="brief_direct_upload"
-            )
-            if direct_brief:
-                content = direct_brief.getvalue()
-                st.session_state['qoo10_brief_bytes'] = content
-                st.session_state['qoo10_brief_name'] = direct_brief.name
-                try:
-                    cnt = len(qgen.parse_qsm_csv(content))
-                    bid = qgen.save_pending_brief(content, direct_brief.name, cnt)
-                    st.session_state['qoo10_brief_id'] = bid
-                except Exception:
-                    pass
-                st.rerun()
+            st.error("⚠️ Tab ① **출고요청서 생성**에서 요약(brief) 파일을 먼저 업로드하세요.")
 
         # OMS 파일 업로드
         oms_file = st.file_uploader(
