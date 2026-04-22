@@ -485,32 +485,7 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭1: 출고요청서 생성 ───
     with tab_gen:
-        det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
-        brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
-
-        # 수집 상태 요약 테이블 (업로드 영역보다 위)
-        st.dataframe(
-            pd.DataFrame([
-                {
-                    '구분': '배송요청 상세 파일',
-                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
-                    '취합여부': '✅' if det_uploaded else '',
-                },
-                {
-                    '구분': '배송요청 요약 파일',
-                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
-                    '취합여부': '✅' if brief_uploaded else '',
-                },
-            ]),
-            hide_index=True, width="stretch",
-            column_config={
-                '구분': st.column_config.TextColumn(width="medium"),
-                '취합 경로': st.column_config.TextColumn(width="large"),
-                '취합여부': st.column_config.TextColumn(width=25),
-            },
-        )
-
-        # 업로드 영역 (테이블 아래로 이동)
+        # 업로드 영역 (맨 위)
         uploaded_q = st.file_uploader(
             "QSM 자료 업로드",
             type=['csv'], accept_multiple_files=True,
@@ -535,9 +510,30 @@ if menu == "📤 출고요청서 (Qoo10)":
                     st.session_state.pop(k, None)
                 st.rerun()
 
-        # 업로드 후 session_state 다시 반영 (rerun 없이 즉시 테이블 갱신하려면 필요)
         det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
         brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
+
+        # 수집 상태 요약 테이블 (업로드 영역 아래)
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    '구분': '배송요청 상세 파일',
+                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
+                    '취합여부': '✅' if det_uploaded else '',
+                },
+                {
+                    '구분': '배송요청 요약 파일',
+                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
+                    '취합여부': '✅' if brief_uploaded else '',
+                },
+            ]),
+            hide_index=True, width="stretch",
+            column_config={
+                '구분': st.column_config.TextColumn(width="medium"),
+                '취합 경로': st.column_config.TextColumn(width="large"),
+                '취합여부': st.column_config.TextColumn(width=25),
+            },
+        )
 
         det_bytes = st.session_state.get('qoo10_detail_bytes')
         det_name = st.session_state.get('qoo10_detail_name')
