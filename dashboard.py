@@ -540,10 +540,16 @@ if menu == "📤 출고요청서 (Qoo10)":
 
         st.markdown("---")
 
+        missing_up = []
         if not det_bytes:
-            st.info("① 상세 파일 업로드 후 출고요청서 생성이 시작됩니다.")
+            missing_up.append("상세(detail)")
+        if not brief_uploaded:
+            missing_up.append("요약(brief)")
+
+        if missing_up:
+            st.error(f"⚠️ **{' / '.join(missing_up)} 파일 업로드 누락** — 두 파일 모두 업로드해야 다음 단계가 진행됩니다.")
         else:
-            st.caption(f"📄 상세 파일: **{det_name}**")
+            st.caption(f"📄 상세: **{det_name}** · 요약: **{st.session_state.get('qoo10_brief_name')}**")
             try:
                 rows = qgen.parse_qsm_csv(det_bytes)
                 st.info(f"QSM 주문 {len(rows)}건 인식")
