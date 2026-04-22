@@ -801,11 +801,11 @@ if menu == "📤 출고요청서 (Qoo10)":
         except Exception:
             pass
 
-        # 1) 임시저장 목록에서 선택
+        # 1) 작업 내역 선택 (Tab ①의 미완료 작업들)
         if pending_briefs:
             labels = [
-                f"[{p['id']}] {p['file_name']} · 주문 {p['cart_count']}건 · "
-                f"{p['created_at'].strftime('%Y-%m-%d %H:%M') if p['created_at'] else ''}"
+                (f"{p['created_at'].strftime('%Y-%m-%d %H:%M') if p['created_at'] else '시간미상'}"
+                 f" · 주문 {p['cart_count']}건")
                 for p in pending_briefs
             ]
             id_by_label = {lbl: p['id'] for lbl, p in zip(labels, pending_briefs)}
@@ -816,10 +816,10 @@ if menu == "📤 출고요청서 (Qoo10)":
                     default_label = match
 
             sel_label = st.selectbox(
-                "임시저장된 요약(brief) 선택",
+                "작업 내역 선택",
                 options=labels,
                 index=labels.index(default_label),
-                help="Tab ①에서 업로드된 brief 파일 목록 (최근 순). 24시간 후에도 이어서 작업 가능.",
+                help="Tab ①에서 출고요청서 생성했던 작업 중 송장 업로드가 미완료인 것 (최근 순)",
             )
             sel_id = id_by_label[sel_label]
             if sel_id != brief_id_t2 or brief_bytes_t2 is None:
@@ -832,13 +832,11 @@ if menu == "📤 출고요청서 (Qoo10)":
                     st.session_state['qoo10_brief_name'] = fname
                     st.session_state['qoo10_brief_id'] = sel_id
                 except Exception as ex:
-                    st.error(f"임시저장 로드 실패: {ex}")
+                    st.error(f"작업 내역 로드 실패: {ex}")
 
-            st.caption(f"📄 요약 파일: `{brief_name_t2}`")
-
-        # 2) 임시저장이 없으면 Tab ①로 안내
+        # 2) 없으면 Tab ①로 안내
         else:
-            st.error("⚠️ Tab ① **출고요청서 생성**에서 요약(brief) 파일을 먼저 업로드하세요.")
+            st.error("⚠️ 미완료 작업이 없습니다. Tab ① **출고요청서 생성**에서 먼저 작업을 시작하세요.")
 
         # OMS 파일 업로드
         oms_file = st.file_uploader(
