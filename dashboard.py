@@ -875,14 +875,39 @@ if menu == "📤 출고요청서 (Qoo10)":
                 waybill_map = {c: oms_map[c] for c in cart_nos if c in oms_map}
 
                 unhandled = len(cart_nos) - len(waybill_map)
+
+                # Tab ① 검수 지표 대조: 선택된 작업의 저장 시 cart_count와 비교
+                expected_carts = next(
+                    (p['cart_count'] for p in pending_briefs if p['id'] == brief_id_t2),
+                    len(cart_nos),
+                )
+
+                def _mark(ok: bool) -> str:
+                    return "✅" if ok else "⚠️"
+
+                qsm_match = (len(cart_nos) == expected_carts)
+                all_handled = (unhandled == 0)
+                waybill_full = (len(waybill_map) == expected_carts)
+
                 c1, c2, c3 = st.columns(3)
-                c1.metric("QSM 주문개수", len(cart_nos))
-                c2.metric("KSE 미취급 주문개수", unhandled)
-                c3.metric("KSE 송장수개", len(waybill_map))
+                c1.metric("QSM 주문개수", f"{len(cart_nos)} {_mark(qsm_match)}")
+                c2.metric("KSE 미취급 주문개수", f"{unhandled} {_mark(all_handled)}")
+                c3.metric("KSE 송장수개", f"{len(waybill_map)} {_mark(waybill_full)}")
+
+                st.caption(
+                    f"Tab ① 작업 기준 주문 {expected_carts}건과 대조. "
+                    + ("✅ **완전 일치**" if qsm_match and all_handled and waybill_full
+                       else "⚠️ 일부 불일치 — 아래 상세 확인")
+                )
 
                 if unhandled > 0:
                     missing = [c for c in cart_nos if c not in waybill_map]
                     st.warning(f"KSE 미취급 (출고 미완료 or 취소 가능성): {', '.join(missing)}")
+                if not qsm_match:
+                    st.warning(
+                        f"Tab ① 주문 {expected_carts}건 ↔ 현재 brief {len(cart_nos)}건 불일치 "
+                        "(brief 파일이 변경됐을 가능성)."
+                    )
 
                 if waybill_map:
                     csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
