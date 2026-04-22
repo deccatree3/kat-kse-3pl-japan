@@ -971,19 +971,12 @@ if menu == "📤 출고요청서 (Qoo10)":
                         width="stretch",
                         type="primary",
                     )
-                    # 완료 후 임시저장 consumed 처리
-                    if brief_id_t2:
-                        col_done, _ = st.columns([1, 3])
-                        with col_done:
-                            if st.button("✅ 임시저장 완료처리", help="송장 업로드 완료 후 브리프 목록에서 제거"):
-                                try:
-                                    qgen.mark_brief_consumed(brief_id_t2)
-                                    for k in ('qoo10_brief_bytes', 'qoo10_brief_name', 'qoo10_brief_id'):
-                                        st.session_state.pop(k, None)
-                                    st.success("완료처리됨")
-                                    st.rerun()
-                                except Exception as ex:
-                                    st.error(f"실패: {ex}")
+                    # 송장 매칭 완전 성공 & KSE 이슈 없으면 자동 완료처리
+                    if brief_id_t2 and waybill_full and no_kse_issue and qsm_match:
+                        try:
+                            qgen.mark_brief_consumed(brief_id_t2)
+                        except Exception:
+                            pass
                 else:
                     st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
             except Exception as e:
