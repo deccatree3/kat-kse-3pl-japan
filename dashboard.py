@@ -774,8 +774,6 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭2: QSM 송장번호 업로드 양식 ───
     with tab_waybill:
-        st.markdown("Tab ①에서 업로드한 **요약(brief) 파일** + 추가로 올릴 **KSE OMS 주문내역.xlsx** 매칭")
-
         brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
         brief_name_t2 = st.session_state.get('qoo10_brief_name')
 
@@ -791,13 +789,8 @@ if menu == "📤 출고요청서 (Qoo10)":
         st.dataframe(
             pd.DataFrame([
                 {
-                    '구분': '배송요청 요약 파일 (brief)',
-                    '취합 경로': 'Tab ①에서 이미 업로드',
-                    '취합여부': '✅' if brief_bytes_t2 else '',
-                },
-                {
                     '구분': 'KSE OMS 주문(출고&입고) 내역',
-                    '취합 경로': 'KSE OMS > 주문관리 > 출고/입고 내역 > 엑셀 다운로드',
+                    '취합 경로': 'KSE JP OMS > OMS > 주문관리 > 주문(출고&입고) - B2C > 엑셀다운',
                     '취합여부': '✅' if oms_uploaded_t2 else '',
                 },
             ]),
