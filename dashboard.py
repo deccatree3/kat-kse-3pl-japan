@@ -485,62 +485,22 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭1: 출고요청서 생성 ───
     with tab_gen:
-        st.markdown("**QSM 수집 파일 안내 및 업로드**")
-        st.caption("아래 2개 파일을 QSM에서 다운로드 후 업로드하세요. 상세는 출고요청서 생성, 요약은 이후 송장 업로드에 사용됩니다.")
-
-        # 필요 파일 안내 테이블
-        det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
-        brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
-
-        st.dataframe(
-            pd.DataFrame([
-                {
-                    '구분': '배송요청 상세 파일',
-                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
-                    '취합여부': '✅' if det_uploaded else '⬜',
-                },
-                {
-                    '구분': '배송요청 요약 파일',
-                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
-                    '취합여부': '✅' if brief_uploaded else '⬜',
-                },
-            ]),
-            hide_index=True, width="stretch",
-            column_config={
-                '구분': st.column_config.TextColumn(width="medium"),
-                '취합 경로': st.column_config.TextColumn(width="large"),
-                '취합여부': st.column_config.TextColumn(width="small"),
-            },
+        # 파일 업로드 (한번에 2개, 파일명으로 detail/brief 자동 식별)
+        uploaded_q = st.file_uploader(
+            "QSM 상세(detail) + 요약(brief) CSV 업로드",
+            type=['csv'], accept_multiple_files=True,
+            key="qoo10_gen_files",
+            help="파일명에 'detail' 포함 → 상세, 'brief' 포함 → 요약으로 자동 분류",
         )
-
-        st.markdown("---")
-        st.markdown("**📎 파일 업로드**")
-
-        # 업로드 영역 2열 (상세 / 요약)
-        up_c1, up_c2 = st.columns(2)
-        with up_c1:
-            det_up = st.file_uploader(
-                "① 상세 (detail) CSV",
-                type=['csv'], key="qoo10_detail_upload",
-                help="파일명에 detail 포함 — Outbound 생성용",
-            )
-            if det_up is not None:
-                st.session_state['qoo10_detail_bytes'] = det_up.getvalue()
-                st.session_state['qoo10_detail_name'] = det_up.name
-            if det_uploaded:
-                st.caption(f"📄 저장됨: `{st.session_state.get('qoo10_detail_name')}`")
-
-        with up_c2:
-            brief_up = st.file_uploader(
-                "② 요약 (brief) CSV",
-                type=['csv'], key="qoo10_brief_upload",
-                help="파일명에 brief 포함 — 이후 QSM 송장 업로드용",
-            )
-            if brief_up is not None:
-                st.session_state['qoo10_brief_bytes'] = brief_up.getvalue()
-                st.session_state['qoo10_brief_name'] = brief_up.name
-            if brief_uploaded:
-                st.caption(f"📄 저장됨: `{st.session_state.get('qoo10_brief_name')}`")
+        if uploaded_q:
+            for f in uploaded_q:
+                nm = f.name.lower()
+                if 'detail' in nm:
+                    st.session_state['qoo10_detail_bytes'] = f.getvalue()
+                    st.session_state['qoo10_detail_name'] = f.name
+                elif 'brief' in nm:
+                    st.session_state['qoo10_brief_bytes'] = f.getvalue()
+                    st.session_state['qoo10_brief_name'] = f.name
 
         clear_c1, _ = st.columns([1, 4])
         with clear_c1:
@@ -549,6 +509,31 @@ if menu == "📤 출고요청서 (Qoo10)":
                           'qoo10_brief_bytes', 'qoo10_brief_name'):
                     st.session_state.pop(k, None)
                 st.rerun()
+
+        det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
+        brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
+
+        # 수집 상태 요약 테이블
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    '구분': '배송요청 상세 파일',
+                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
+                    '취합여부': '✅' if det_uploaded else '',
+                },
+                {
+                    '구분': '배송요청 요약 파일',
+                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
+                    '취합여부': '✅' if brief_uploaded else '',
+                },
+            ]),
+            hide_index=True, width="stretch",
+            column_config={
+                '구분': st.column_config.TextColumn(width="medium"),
+                '취합 경로': st.column_config.TextColumn(width="large"),
+                '취합여부': st.column_config.TextColumn(width=70),
+            },
+        )
 
         det_bytes = st.session_state.get('qoo10_detail_bytes')
         det_name = st.session_state.get('qoo10_detail_name')
@@ -789,81 +774,79 @@ if menu == "📤 출고요청서 (Qoo10)":
         brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
         brief_name_t2 = st.session_state.get('qoo10_brief_name')
 
-        # 수집 파일 안내 테이블
-        oms_uploaded_t2 = False  # 아래에서 판별
+        # OMS 파일 업로드
+        oms_file = st.file_uploader(
+            "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
+            type=['xlsx'], key="oms_waybill_xlsx",
+            help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
+        )
+        oms_uploaded_t2 = oms_file is not None
+
+        # 수집 상태 테이블
         st.dataframe(
             pd.DataFrame([
                 {
                     '구분': '배송요청 요약 파일 (brief)',
                     '취합 경로': 'Tab ①에서 이미 업로드',
-                    '취합여부': '✅' if brief_bytes_t2 else '⬜',
+                    '취합여부': '✅' if brief_bytes_t2 else '',
                 },
                 {
                     '구분': 'KSE OMS 주문(출고&입고) 내역',
                     '취합 경로': 'KSE OMS > 주문관리 > 출고/입고 내역 > 엑셀 다운로드',
-                    '취합여부': '⬜',  # 실제 파일 업로드 후 갱신은 아래 조건부로
+                    '취합여부': '✅' if oms_uploaded_t2 else '',
                 },
             ]),
             hide_index=True, width="stretch",
             column_config={
                 '구분': st.column_config.TextColumn(width="medium"),
                 '취합 경로': st.column_config.TextColumn(width="large"),
-                '취합여부': st.column_config.TextColumn(width="small"),
+                '취합여부': st.column_config.TextColumn(width=70),
             },
         )
 
         if not brief_bytes_t2:
             st.error("⚠️ Tab ① **출고요청서 생성**에서 먼저 요약(brief) 파일을 업로드하세요.")
+        elif not oms_file:
+            st.info("KSE OMS 주문내역 xlsx를 업로드하세요.")
         else:
-            st.caption(f"📄 요약 파일: `{brief_name_t2}`")
+            try:
+                brief_rows = qgen.parse_qsm_csv(brief_bytes_t2)
+                cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
 
-            oms_file = st.file_uploader(
-                "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
-                type=['xlsx'], key="oms_waybill_xlsx",
-                help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
-            )
+                oms_map = qgen.parse_kse_oms_waybill(oms_file.getvalue())
+                waybill_map = {c: oms_map[c] for c in cart_nos if c in oms_map}
 
-            if not oms_file:
-                st.info("KSE OMS 주문내역 xlsx를 업로드하세요.")
-            else:
-                try:
-                    brief_rows = qgen.parse_qsm_csv(brief_bytes_t2)
-                    cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
+                c1, c2, c3 = st.columns(3)
+                c1.metric("QSM brief 주문", len(cart_nos))
+                c2.metric("KSE OMS 송장 추출", len(oms_map))
+                c3.metric("매칭 성공", f"{len(waybill_map)}/{len(cart_nos)}")
 
-                    oms_map = qgen.parse_kse_oms_waybill(oms_file.getvalue())
-                    waybill_map = {c: oms_map[c] for c in cart_nos if c in oms_map}
+                if len(waybill_map) < len(cart_nos):
+                    missing = [c for c in cart_nos if c not in waybill_map]
+                    st.warning(f"미매칭 (KSE 출고 미완료 or 취소 가능성): {', '.join(missing)}")
 
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("QSM brief 주문", len(cart_nos))
-                    c2.metric("KSE OMS 송장 추출", len(oms_map))
-                    c3.metric("매칭 성공", f"{len(waybill_map)}/{len(cart_nos)}")
-
-                    if len(waybill_map) < len(cart_nos):
-                        missing = [c for c in cart_nos if c not in waybill_map]
-                        st.warning(f"미매칭 (KSE 출고 미완료 or 취소 가능성): {', '.join(missing)}")
-
-                    if waybill_map:
-                        csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
-                        try:
-                            updated = qgen.update_outbound_waybills(waybill_map)
-                            st.caption(f"🗂 출고 이력 DB 송장번호 갱신: {updated}건")
-                        except Exception as ex:
-                            st.warning(f"DB 갱신 실패 (CSV 다운로드는 가능): {ex}")
-                        today_str = datetime.date.today().strftime('%Y%m%d')
-                        st.download_button(
-                            f"📥 QSM_waybill_{today_str}.csv 다운로드",
-                            data=csv_bytes,
-                            file_name=f"QSM_waybill_{today_str}.csv",
-                            mime="text/csv",
-                            width="stretch",
-                            type="primary",
-                        )
-                        if missing:
-                            st.warning(f"생성된 CSV 중 송장번호 미입력 {len(missing)}건: {', '.join(missing)}")
-                    else:
-                        st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
-                except Exception as e:
-                    st.error(f"처리 중 오류: {e}")
+                if waybill_map:
+                    csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
+                    try:
+                        updated = qgen.update_outbound_waybills(waybill_map)
+                        st.caption(f"🗂 출고 이력 DB 송장번호 갱신: {updated}건")
+                    except Exception as ex:
+                        st.warning(f"DB 갱신 실패 (CSV 다운로드는 가능): {ex}")
+                    today_str = datetime.date.today().strftime('%Y%m%d')
+                    st.download_button(
+                        f"📥 QSM_waybill_{today_str}.csv 다운로드",
+                        data=csv_bytes,
+                        file_name=f"QSM_waybill_{today_str}.csv",
+                        mime="text/csv",
+                        width="stretch",
+                        type="primary",
+                    )
+                    if missing:
+                        st.warning(f"생성된 CSV 중 송장번호 미입력 {len(missing)}건: {', '.join(missing)}")
+                else:
+                    st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
+            except Exception as e:
+                st.error(f"처리 중 오류: {e}")
 
     # ─── 탭: 출고 이력 조회 ───
     with tab_history:
