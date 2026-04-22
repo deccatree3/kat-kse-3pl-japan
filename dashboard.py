@@ -890,16 +890,23 @@ if menu == "📤 출고요청서 (Qoo10)":
 
                 unhandled = len(cart_nos) - len(waybill_map)
 
-                # Tab ① 저장값: cart_count(brief 전체), disabled_count(Tab ① 취급안함 수)
+                # Tab ① 저장값 (없으면 brief 직접 분석)
                 sel_meta = next(
                     (p for p in pending_briefs if p['id'] == brief_id_t2), None
                 )
                 expected_carts = sel_meta['cart_count'] if sel_meta else len(cart_nos)
-                expected_disabled = sel_meta['disabled_count'] if sel_meta else 0
-                # Tab ①이 KSE로 실제 보낸 (OMS 접수된) 주문 수
-                expected_oms_orders = expected_carts - expected_disabled
 
-                # unhandled = disabled(의도) + KSE_issue(비의도)
+                # 매핑 조회하여 실시간 disabled 수 계산 (Tab ① 안 봐도 동작)
+                try:
+                    _mappings_live = qgen.load_mappings()
+                    live_disabled = qgen.count_disabled_in_brief(brief_rows, _mappings_live)
+                except Exception:
+                    live_disabled = 0
+
+                saved_disabled = sel_meta['disabled_count'] if sel_meta else 0
+                expected_disabled = max(live_disabled, saved_disabled)
+
+                expected_oms_orders = expected_carts - expected_disabled
                 kse_issue = max(0, unhandled - expected_disabled)
 
                 def _mark(ok: bool) -> str:

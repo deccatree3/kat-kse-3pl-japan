@@ -553,6 +553,21 @@ def update_outbound_waybills(waybill_map: Dict[str, str]) -> int:
     return total
 
 
+def count_disabled_in_brief(brief_rows: List[Dict], mappings: Dict) -> int:
+    """
+    brief.csv 행들 중 (상품명+옵션) 매핑이 '취급안함(enabled=False)'에 해당하는 행 수.
+    Tab ② 단독에서 Tab ①과 동일한 검수가 가능하도록 함.
+    """
+    n = 0
+    for r in brief_rows:
+        name = (r.get('상품명') or '').strip()
+        option = (r.get('옵션정보') or '').strip()
+        m = mappings.get((name, option))
+        if m and not m['enabled']:
+            n += 1
+    return n
+
+
 def save_pending_brief(content: bytes, file_name: str, cart_count: int,
                         disabled_count: int = 0) -> int:
     """brief.csv 바이트를 DB에 임시저장. 이미 같은 파일명이 있으면 덮어쓰기.
