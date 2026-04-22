@@ -782,10 +782,18 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭2: QSM 송장번호 업로드 양식 ───
     with tab_waybill:
-        # 세션에 brief가 없으면 임시저장된 것에서 선택
         brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
         brief_name_t2 = st.session_state.get('qoo10_brief_name')
         brief_id_t2 = st.session_state.get('qoo10_brief_id')
+
+        # 세션에 brief가 있지만 DB 저장 안된 경우 자동 저장
+        if brief_bytes_t2 and not brief_id_t2:
+            try:
+                cnt = len(qgen.parse_qsm_csv(brief_bytes_t2))
+                brief_id_t2 = qgen.save_pending_brief(brief_bytes_t2, brief_name_t2, cnt)
+                st.session_state['qoo10_brief_id'] = brief_id_t2
+            except Exception:
+                pass
 
         pending_briefs = []
         try:
@@ -793,6 +801,7 @@ if menu == "📤 출고요청서 (Qoo10)":
         except Exception:
             pass
 
+        # 1) 임시저장 목록에서 선택
         if pending_briefs:
             labels = [
                 f"[{p['id']}] {p['file_name']} · 주문 {p['cart_count']}건 · "
@@ -800,8 +809,7 @@ if menu == "📤 출고요청서 (Qoo10)":
                 for p in pending_briefs
             ]
             id_by_label = {lbl: p['id'] for lbl, p in zip(labels, pending_briefs)}
-            default_label = labels[0]  # 가장 최근
-            # 세션 brief_id 있으면 그걸 기본값으로
+            default_label = labels[0]
             if brief_id_t2:
                 match = next((lbl for lbl, pid in id_by_label.items() if pid == brief_id_t2), None)
                 if match:
@@ -811,7 +819,7 @@ if menu == "📤 출고요청서 (Qoo10)":
                 "임시저장된 요약(brief) 선택",
                 options=labels,
                 index=labels.index(default_label),
-                help="Tab ①에서 업로드된 brief 파일 목록. 24시간 후에도 이어서 작업 가능.",
+                help="Tab ①에서 업로드된 brief 파일 목록 (최근 순). 24시간 후에도 이어서 작업 가능.",
             )
             sel_id = id_by_label[sel_label]
             if sel_id != brief_id_t2 or brief_bytes_t2 is None:
@@ -826,7 +834,25 @@ if menu == "📤 출고요청서 (Qoo10)":
                 except Exception as ex:
                     st.error(f"임시저장 로드 실패: {ex}")
 
-            st.caption(f"📄 요약 파일: `{brief_name_t2}` (임시저장 id={brief_id_t2})")
+            st.caption(f"📄 요약 파일: `{brief_name_t2}`")
+
+        # 2) 임시저장이 없으면 직접 업로드 fallback
+        else:
+            st.warning("임시저장된 brief 없음. Tab ①에서 업로드했거나 아래에서 직접 올리세요.")
+            direct_brief = st.file_uploader(
+                "요약(brief).csv 직접 업로드", type=['csv'], key="brief_direct_upload"
+            )
+            if direct_brief:
+                content = direct_brief.getvalue()
+                st.session_state['qoo10_brief_bytes'] = content
+                st.session_state['qoo10_brief_name'] = direct_brief.name
+                try:
+                    cnt = len(qgen.parse_qsm_csv(content))
+                    bid = qgen.save_pending_brief(content, direct_brief.name, cnt)
+                    st.session_state['qoo10_brief_id'] = bid
+                except Exception:
+                    pass
+                st.rerun()
 
         # OMS 파일 업로드
         oms_file = st.file_uploader(
