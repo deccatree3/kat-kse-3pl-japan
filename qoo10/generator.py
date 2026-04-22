@@ -553,11 +553,13 @@ def update_outbound_waybills(waybill_map: Dict[str, str]) -> int:
     return total
 
 
-def save_pending_brief(content: bytes, file_name: str, cart_count: int) -> int:
-    """brief.csv 바이트를 DB에 임시저장. 이미 같은 파일명이 있으면 덮어쓰기."""
+def save_pending_brief(content: bytes, file_name: str, cart_count: int,
+                        disabled_count: int = 0) -> int:
+    """brief.csv 바이트를 DB에 임시저장. 이미 같은 파일명이 있으면 덮어쓰기.
+    disabled_count: Tab ① 취급안함(매핑 비활성) 분류 건수 — Tab ②에서 기대 미취급 수로 활용.
+    """
     conn = pg.connect()
     with conn.cursor() as cur:
-        # 같은 파일명 미소비 건이 있으면 업데이트 (브라우저 새로고침 시 중복 방지)
         cur.execute("""
             SELECT id FROM qoo10_pending_brief
             WHERE file_name = %s AND consumed_at IS NULL
@@ -567,16 +569,16 @@ def save_pending_brief(content: bytes, file_name: str, cart_count: int) -> int:
         if existing:
             cur.execute("""
                 UPDATE qoo10_pending_brief
-                SET content = %s, cart_count = %s,
+                SET content = %s, cart_count = %s, disabled_count = %s,
                     created_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
                 WHERE id = %s
-            """, (content, cart_count, existing[0]))
+            """, (content, cart_count, disabled_count, existing[0]))
             rid = existing[0]
         else:
             cur.execute("""
-                INSERT INTO qoo10_pending_brief (file_name, content, cart_count)
-                VALUES (%s, %s, %s) RETURNING id
-            """, (file_name, content, cart_count))
+                INSERT INTO qoo10_pending_brief (file_name, content, cart_count, disabled_count)
+                VALUES (%s, %s, %s, %s) RETURNING id
+            """, (file_name, content, cart_count, disabled_count))
             rid = cur.fetchone()[0]
     conn.commit()
     conn.close()
@@ -589,7 +591,7 @@ def list_pending_briefs(include_consumed: bool = False, limit: int = 20) -> List
     with conn.cursor() as cur:
         where = "" if include_consumed else "WHERE consumed_at IS NULL"
         cur.execute(f"""
-            SELECT id, created_at, file_name, cart_count, consumed_at
+            SELECT id, created_at, file_name, cart_count, disabled_count, consumed_at
             FROM qoo10_pending_brief {where}
             ORDER BY created_at DESC LIMIT %s
         """, (limit,))
@@ -597,7 +599,7 @@ def list_pending_briefs(include_consumed: bool = False, limit: int = 20) -> List
     conn.close()
     return [
         {'id': r[0], 'created_at': r[1], 'file_name': r[2],
-         'cart_count': r[3], 'consumed_at': r[4]}
+         'cart_count': r[3], 'disabled_count': r[4] or 0, 'consumed_at': r[5]}
         for r in rows
     ]
 

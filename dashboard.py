@@ -597,6 +597,18 @@ if menu == "📤 출고요청서 (Qoo10)":
                 missing_errors = [e for e in errors if e['원인'] == '상품 매핑 없음']
                 disabled_errors = [e for e in errors if e['원인'] == '매핑 비활성(취급 안함)']
 
+                # brief 임시저장에 disabled_count 반영 (이미 저장됐으면 update)
+                bid_now = st.session_state.get('qoo10_brief_id')
+                brief_bytes_now = st.session_state.get('qoo10_brief_bytes')
+                brief_name_now = st.session_state.get('qoo10_brief_name')
+                if bid_now and brief_bytes_now:
+                    try:
+                        brief_cnt = len(qgen.parse_qsm_csv(brief_bytes_now))
+                        qgen.save_pending_brief(brief_bytes_now, brief_name_now,
+                                                brief_cnt, len(disabled_errors))
+                    except Exception:
+                        pass
+
                 st.caption(
                     f"🚚 실제 출고 PCS (予定数量 합계): **{audit['total_picking_pcs']}** · "
                     f"KSE 미취급 **{len(disabled_errors)}건** · "
@@ -878,33 +890,48 @@ if menu == "📤 출고요청서 (Qoo10)":
 
                 unhandled = len(cart_nos) - len(waybill_map)
 
-                # Tab ① 검수 지표 대조: 선택된 작업의 저장 시 cart_count와 비교
-                expected_carts = next(
-                    (p['cart_count'] for p in pending_briefs if p['id'] == brief_id_t2),
-                    len(cart_nos),
+                # Tab ① 저장값: cart_count(brief 전체), disabled_count(Tab ① 취급안함 수)
+                sel_meta = next(
+                    (p for p in pending_briefs if p['id'] == brief_id_t2), None
                 )
+                expected_carts = sel_meta['cart_count'] if sel_meta else len(cart_nos)
+                expected_disabled = sel_meta['disabled_count'] if sel_meta else 0
+                # Tab ①이 KSE로 실제 보낸 (OMS 접수된) 주문 수
+                expected_oms_orders = expected_carts - expected_disabled
+
+                # unhandled = disabled(의도) + KSE_issue(비의도)
+                kse_issue = max(0, unhandled - expected_disabled)
 
                 def _mark(ok: bool) -> str:
                     return "✅" if ok else "⚠️"
 
                 qsm_match = (len(cart_nos) == expected_carts)
-                all_handled = (unhandled == 0)
-                waybill_full = (len(waybill_map) == expected_carts)
+                no_kse_issue = (kse_issue == 0)
+                waybill_full = (len(waybill_map) == expected_oms_orders)
 
                 c1, c2, c3 = st.columns(3)
                 c1.metric("QSM 주문개수", f"{len(cart_nos)} {_mark(qsm_match)}")
-                c2.metric("KSE 미취급 주문개수", f"{unhandled} {_mark(all_handled)}")
+                c2.metric(
+                    "KSE 미취급 주문개수",
+                    f"{unhandled} {_mark(no_kse_issue)}",
+                    help=f"이 중 Tab ① 취급안함: {expected_disabled}건 (예정) · KSE 쪽 이슈: {kse_issue}건",
+                )
                 c3.metric("KSE 송장수개", f"{len(waybill_map)} {_mark(waybill_full)}")
 
                 st.caption(
-                    f"Tab ① 작업 기준 주문 {expected_carts}건과 대조. "
-                    + ("✅ **완전 일치**" if qsm_match and all_handled and waybill_full
-                       else "⚠️ 일부 불일치 — 아래 상세 확인")
+                    f"Tab ① 기준: 전체 {expected_carts}건 / KSE 접수 대상 {expected_oms_orders}건 "
+                    f"(취급안함 {expected_disabled}건 제외). "
+                    + ("✅ **모두 정상 처리**" if qsm_match and no_kse_issue and waybill_full
+                       else "⚠️ 아래 상세 확인")
                 )
 
-                if unhandled > 0:
+                if kse_issue > 0:
+                    # Tab ① 취급안함 주문번호는 알 수 없지만, 전체 미매칭에서 초과분이 KSE 이슈
                     missing = [c for c in cart_nos if c not in waybill_map]
-                    st.warning(f"KSE 미취급 (출고 미완료 or 취소 가능성): {', '.join(missing)}")
+                    st.warning(
+                        f"KSE 쪽 이슈 **{kse_issue}건** (취급안함 {expected_disabled}건 외 추가). "
+                        f"전체 미매칭 목록: {', '.join(missing)}"
+                    )
                 if not qsm_match:
                     st.warning(
                         f"Tab ① 주문 {expected_carts}건 ↔ 현재 brief {len(cart_nos)}건 불일치 "
