@@ -121,7 +121,7 @@ def add_mapping(qoo10_name: str, qoo10_option: str,
                 sku_codes = EXCLUDED.sku_codes,
                 quantities = EXCLUDED.quantities,
                 enabled = EXCLUDED.enabled,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
         """, (qoo10_name, qoo10_option, item_codes, sku_codes, quantities, enabled))
     conn.commit()
     conn.close()
@@ -505,7 +505,7 @@ def save_outbound_log(qsm_rows: List[Dict], outbound_rows: List[Dict],
                 (qoo10_cart_no, qoo10_order_no, sku_code, sku_name, planned_qty,
                  recipient, recipient_phone, postal_code, address,
                  qoo10_product_name, qoo10_option, qoo10_qty, source_file, generated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'))
                 ON CONFLICT (qoo10_cart_no, qoo10_order_no, sku_code) DO UPDATE SET
                     sku_name = EXCLUDED.sku_name,
                     planned_qty = EXCLUDED.planned_qty,
@@ -517,7 +517,7 @@ def save_outbound_log(qsm_rows: List[Dict], outbound_rows: List[Dict],
                     qoo10_option = EXCLUDED.qoo10_option,
                     qoo10_qty = EXCLUDED.qoo10_qty,
                     source_file = EXCLUDED.source_file,
-                    generated_at = CURRENT_TIMESTAMP
+                    generated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
             """, (
                 cart_no, order_no, sku_code, sku_name, qty,
                 row.get('仕入先名/受取人名', ''),
@@ -544,7 +544,7 @@ def update_outbound_waybills(waybill_map: Dict[str, str]) -> int:
         for cart, waybill in waybill_map.items():
             cur.execute("""
                 UPDATE qoo10_outbound
-                SET waybill = %s, waybill_updated_at = CURRENT_TIMESTAMP
+                SET waybill = %s, waybill_updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
                 WHERE qoo10_cart_no = %s
             """, (waybill, cart))
             total += cur.rowcount

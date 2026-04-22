@@ -75,12 +75,12 @@ def save_alert_config(cfg):
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO alert_config (id, enabled, webhook_url, threshold_days, updated_at)
-            VALUES (1, %s, %s, %s, CURRENT_TIMESTAMP)
+            VALUES (1, %s, %s, %s, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'))
             ON CONFLICT (id) DO UPDATE SET
                 enabled = EXCLUDED.enabled,
                 webhook_url = EXCLUDED.webhook_url,
                 threshold_days = EXCLUDED.threshold_days,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
         """, (
             bool(cfg.get("enabled", False)),
             (cfg.get("webhook_url") or "").strip(),
@@ -823,7 +823,7 @@ if menu == "📤 출고요청서 (Qoo10)":
         with col_f3:
             search_hist = st.text_input("🔍 검색 (장바구니/송장/수취인)")
 
-        conds = ["generated_at >= (CURRENT_TIMESTAMP - INTERVAL '%s days')" % int(days_filter)]
+        conds = ["generated_at >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') - INTERVAL '%s days')" % int(days_filter)]
         params = []
         if wb_filter == "송장 있음":
             conds.append("waybill IS NOT NULL AND waybill != ''")

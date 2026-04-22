@@ -47,7 +47,7 @@ def save_last_alerted(skus: list):
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE alert_config
-            SET last_alerted_skus = %s::jsonb, updated_at = CURRENT_TIMESTAMP
+            SET last_alerted_skus = %s::jsonb, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
             WHERE id=1
         """, (json.dumps(sorted(skus)),))
     conn.commit()
