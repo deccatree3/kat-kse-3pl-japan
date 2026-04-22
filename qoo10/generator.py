@@ -553,6 +553,92 @@ def update_outbound_waybills(waybill_map: Dict[str, str]) -> int:
     return total
 
 
+def save_pending_brief(content: bytes, file_name: str, cart_count: int) -> int:
+    """brief.csv 바이트를 DB에 임시저장. 이미 같은 파일명이 있으면 덮어쓰기."""
+    conn = pg.connect()
+    with conn.cursor() as cur:
+        # 같은 파일명 미소비 건이 있으면 업데이트 (브라우저 새로고침 시 중복 방지)
+        cur.execute("""
+            SELECT id FROM qoo10_pending_brief
+            WHERE file_name = %s AND consumed_at IS NULL
+            ORDER BY created_at DESC LIMIT 1
+        """, (file_name,))
+        existing = cur.fetchone()
+        if existing:
+            cur.execute("""
+                UPDATE qoo10_pending_brief
+                SET content = %s, cart_count = %s,
+                    created_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
+                WHERE id = %s
+            """, (content, cart_count, existing[0]))
+            rid = existing[0]
+        else:
+            cur.execute("""
+                INSERT INTO qoo10_pending_brief (file_name, content, cart_count)
+                VALUES (%s, %s, %s) RETURNING id
+            """, (file_name, content, cart_count))
+            rid = cur.fetchone()[0]
+    conn.commit()
+    conn.close()
+    return rid
+
+
+def list_pending_briefs(include_consumed: bool = False, limit: int = 20) -> List[Dict]:
+    """임시저장된 brief 목록"""
+    conn = pg.connect(autocommit=True)
+    with conn.cursor() as cur:
+        where = "" if include_consumed else "WHERE consumed_at IS NULL"
+        cur.execute(f"""
+            SELECT id, created_at, file_name, cart_count, consumed_at
+            FROM qoo10_pending_brief {where}
+            ORDER BY created_at DESC LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+    conn.close()
+    return [
+        {'id': r[0], 'created_at': r[1], 'file_name': r[2],
+         'cart_count': r[3], 'consumed_at': r[4]}
+        for r in rows
+    ]
+
+
+def load_pending_brief(brief_id: int) -> Tuple[bytes, str]:
+    """특정 임시저장 brief 로드"""
+    conn = pg.connect(autocommit=True)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT content, file_name FROM qoo10_pending_brief WHERE id = %s",
+            (brief_id,),
+        )
+        row = cur.fetchone()
+    conn.close()
+    if not row:
+        raise RuntimeError(f"임시저장 brief id={brief_id} 없음")
+    return bytes(row[0]), row[1]
+
+
+def mark_brief_consumed(brief_id: int):
+    """임시저장 brief를 consumed로 표시 (송장 업로드 완료 후)"""
+    conn = pg.connect()
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE qoo10_pending_brief
+            SET consumed_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
+            WHERE id = %s
+        """, (brief_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_pending_brief(brief_id: int):
+    """임시저장 brief 삭제 (사용자가 취소 선택 시)"""
+    conn = pg.connect()
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM qoo10_pending_brief WHERE id = %s", (brief_id,))
+    conn.commit()
+    conn.close()
+
+
 def parse_kse_oms_waybill(xlsx_bytes: bytes) -> Dict[str, str]:
     """
     KSE OMS "주문(출고&입고) 내역" xlsx 파일 → {주문번호: 송장번호} 매핑.

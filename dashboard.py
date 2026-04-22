@@ -499,8 +499,16 @@ if menu == "📤 출고요청서 (Qoo10)":
                     st.session_state['qoo10_detail_bytes'] = f.getvalue()
                     st.session_state['qoo10_detail_name'] = f.name
                 elif 'brief' in nm:
-                    st.session_state['qoo10_brief_bytes'] = f.getvalue()
+                    content = f.getvalue()
+                    st.session_state['qoo10_brief_bytes'] = content
                     st.session_state['qoo10_brief_name'] = f.name
+                    # DB 임시저장 (다음 세션에서도 Tab ②에서 사용 가능)
+                    try:
+                        brief_rows_cnt = len(qgen.parse_qsm_csv(content))
+                        bid = qgen.save_pending_brief(content, f.name, brief_rows_cnt)
+                        st.session_state['qoo10_brief_id'] = bid
+                    except Exception as ex:
+                        st.warning(f"brief 임시저장 실패 (세션 내에서는 사용 가능): {ex}")
 
         clear_c1, _ = st.columns([1, 4])
         with clear_c1:
@@ -774,8 +782,51 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭2: QSM 송장번호 업로드 양식 ───
     with tab_waybill:
+        # 세션에 brief가 없으면 임시저장된 것에서 선택
         brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
         brief_name_t2 = st.session_state.get('qoo10_brief_name')
+        brief_id_t2 = st.session_state.get('qoo10_brief_id')
+
+        pending_briefs = []
+        try:
+            pending_briefs = qgen.list_pending_briefs(include_consumed=False, limit=20)
+        except Exception:
+            pass
+
+        if pending_briefs:
+            labels = [
+                f"[{p['id']}] {p['file_name']} · 주문 {p['cart_count']}건 · "
+                f"{p['created_at'].strftime('%Y-%m-%d %H:%M') if p['created_at'] else ''}"
+                for p in pending_briefs
+            ]
+            id_by_label = {lbl: p['id'] for lbl, p in zip(labels, pending_briefs)}
+            default_label = labels[0]  # 가장 최근
+            # 세션 brief_id 있으면 그걸 기본값으로
+            if brief_id_t2:
+                match = next((lbl for lbl, pid in id_by_label.items() if pid == brief_id_t2), None)
+                if match:
+                    default_label = match
+
+            sel_label = st.selectbox(
+                "임시저장된 요약(brief) 선택",
+                options=labels,
+                index=labels.index(default_label),
+                help="Tab ①에서 업로드된 brief 파일 목록. 24시간 후에도 이어서 작업 가능.",
+            )
+            sel_id = id_by_label[sel_label]
+            if sel_id != brief_id_t2 or brief_bytes_t2 is None:
+                try:
+                    content, fname = qgen.load_pending_brief(sel_id)
+                    brief_bytes_t2 = content
+                    brief_name_t2 = fname
+                    brief_id_t2 = sel_id
+                    st.session_state['qoo10_brief_bytes'] = content
+                    st.session_state['qoo10_brief_name'] = fname
+                    st.session_state['qoo10_brief_id'] = sel_id
+                except Exception as ex:
+                    st.error(f"임시저장 로드 실패: {ex}")
+
+            st.caption(f"📄 요약 파일: `{brief_name_t2}` (임시저장 id={brief_id_t2})")
 
         # OMS 파일 업로드
         oms_file = st.file_uploader(
@@ -841,6 +892,19 @@ if menu == "📤 출고요청서 (Qoo10)":
                     )
                     if missing:
                         st.warning(f"생성된 CSV 중 송장번호 미입력 {len(missing)}건: {', '.join(missing)}")
+                    # 완료 후 임시저장 consumed 처리
+                    if brief_id_t2:
+                        col_done, _ = st.columns([1, 3])
+                        with col_done:
+                            if st.button("✅ 임시저장 완료처리", help="송장 업로드 완료 후 브리프 목록에서 제거"):
+                                try:
+                                    qgen.mark_brief_consumed(brief_id_t2)
+                                    for k in ('qoo10_brief_bytes', 'qoo10_brief_name', 'qoo10_brief_id'):
+                                        st.session_state.pop(k, None)
+                                    st.success("완료처리됨")
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"실패: {ex}")
                 else:
                     st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
             except Exception as e:
