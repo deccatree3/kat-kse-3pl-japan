@@ -459,6 +459,100 @@ def build_outbound_xlsx(outbound_rows: List[Dict]) -> bytes:
     return out.getvalue()
 
 
+def save_outbound_log(qsm_rows: List[Dict], outbound_rows: List[Dict],
+                      mappings: Dict, source_file: str) -> int:
+    """
+    생성된 Outbound 데이터를 qoo10_outbound 테이블에 기록.
+    (qoo10_cart_no, qoo10_order_no, sku_code) 기준 upsert.
+    반환: 저장된 행 수
+    """
+    # 장바구니번호 → QSM 주문번호 (첫 매칭) + 원본 상품명/옵션/수량 매핑
+    qsm_by_cart = {}
+    for q in qsm_rows:
+        cart = (q.get('장바구니번호') or '').strip()
+        if cart and cart not in qsm_by_cart:
+            qsm_by_cart[cart] = q
+
+    conn = pg.connect()
+    n = 0
+    with conn.cursor() as cur:
+        for row in outbound_rows:
+            cart_no = str(row.get('注文番号', ''))
+            sku_code = row.get('商品コード', '')
+            qty = int(row.get('予定数量', 0) or 0)
+
+            q_info = qsm_by_cart.get(cart_no, {})
+            order_no = (q_info.get('주문번호') or '').strip()
+            qsm_qty = int(q_info.get('수량', 1) or 1)
+            qoo10_name = q_info.get('상품명', '')
+            qoo10_option = q_info.get('옵션정보', '')
+
+            # sku_name은 매핑에서 찾기
+            sku_name = ''
+            for m in mappings.values():
+                for code, qn in zip(m['sku_codes'], m.get('item_codes', [])) \
+                        if isinstance(m, dict) and 'item_codes' in m else []:
+                    pass
+            # 간단히: sku_catalog에서 역조회
+            try:
+                sku_list = load_kse_sku_catalog()
+                sku_name = next((s['sku_name'] for s in sku_list if s['sku_code'] == sku_code), '')
+            except Exception:
+                sku_name = ''
+
+            cur.execute("""
+                INSERT INTO qoo10_outbound
+                (qoo10_cart_no, qoo10_order_no, sku_code, sku_name, planned_qty,
+                 recipient, recipient_phone, postal_code, address,
+                 qoo10_product_name, qoo10_option, qoo10_qty, source_file, generated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (qoo10_cart_no, qoo10_order_no, sku_code) DO UPDATE SET
+                    sku_name = EXCLUDED.sku_name,
+                    planned_qty = EXCLUDED.planned_qty,
+                    recipient = EXCLUDED.recipient,
+                    recipient_phone = EXCLUDED.recipient_phone,
+                    postal_code = EXCLUDED.postal_code,
+                    address = EXCLUDED.address,
+                    qoo10_product_name = EXCLUDED.qoo10_product_name,
+                    qoo10_option = EXCLUDED.qoo10_option,
+                    qoo10_qty = EXCLUDED.qoo10_qty,
+                    source_file = EXCLUDED.source_file,
+                    generated_at = CURRENT_TIMESTAMP
+            """, (
+                cart_no, order_no, sku_code, sku_name, qty,
+                row.get('仕入先名/受取人名', ''),
+                row.get('電話番号', ''),
+                row.get('郵便番号コード', ''),
+                row.get('基本住所', ''),
+                qoo10_name, qoo10_option, qsm_qty, source_file,
+            ))
+            n += 1
+    conn.commit()
+    conn.close()
+    return n
+
+
+def update_outbound_waybills(waybill_map: Dict[str, str]) -> int:
+    """장바구니번호 → 송장번호 매핑으로 qoo10_outbound.waybill 갱신.
+    반환: 갱신된 행 수
+    """
+    if not waybill_map:
+        return 0
+    conn = pg.connect()
+    total = 0
+    with conn.cursor() as cur:
+        for cart, waybill in waybill_map.items():
+            cur.execute("""
+                UPDATE qoo10_outbound
+                SET waybill = %s, waybill_updated_at = CURRENT_TIMESTAMP
+                WHERE qoo10_cart_no = %s
+            """, (waybill, cart))
+            total += cur.rowcount
+    conn.commit()
+    conn.close()
+    return total
+
+
 def parse_kse_oms_waybill(xlsx_bytes: bytes) -> Dict[str, str]:
     """
     KSE OMS "주문(출고&입고) 내역" xlsx 파일 → {주문번호: 송장번호} 매핑.

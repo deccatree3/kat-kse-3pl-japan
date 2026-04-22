@@ -479,8 +479,8 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     st.subheader("📤 Qoo10 출고요청서 / 송장번호 업로드")
 
-    tab_gen, tab_waybill, tab_mapping = st.tabs([
-        "① 출고요청서 생성", "② QSM 송장 업로드", "🔧 상품 매핑"
+    tab_gen, tab_waybill, tab_history, tab_mapping = st.tabs([
+        "① 출고요청서 생성", "② QSM 송장 업로드", "📚 출고 이력", "🔧 상품 매핑"
     ])
 
     # ─── 탭1: 출고요청서 생성 ───
@@ -715,6 +715,14 @@ if menu == "📤 출고요청서 (Qoo10)":
                     else:
                         xlsx_bytes = qgen.build_outbound_xlsx(out_rows)
                         today_str = datetime.date.today().strftime('%Y%m%d')
+                        # DB 기록 (송장은 나중에 채워짐)
+                        try:
+                            n_saved = qgen.save_outbound_log(
+                                rows, out_rows, mappings, det_name or 'unknown.csv'
+                            )
+                            st.caption(f"🗂 출고 이력 DB 기록: {n_saved}건")
+                        except Exception as ex:
+                            st.warning(f"DB 기록 실패 (다운로드는 가능): {ex}")
                         st.download_button(
                             f"📥 Outbound_ship_conf_btoc_{today_str}.xlsx 다운로드",
                             data=xlsx_bytes,
@@ -778,6 +786,12 @@ if menu == "📤 출고요청서 (Qoo10)":
 
                 if waybill_map:
                     csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_file.getvalue(), waybill_map)
+                    # DB 송장번호 갱신
+                    try:
+                        updated = qgen.update_outbound_waybills(waybill_map)
+                        st.caption(f"🗂 출고 이력 DB 송장번호 갱신: {updated}건")
+                    except Exception as ex:
+                        st.warning(f"DB 갱신 실패 (CSV 다운로드는 가능): {ex}")
                     today_str = datetime.date.today().strftime('%Y%m%d')
                     st.download_button(
                         f"📥 QSM_waybill_{today_str}.csv 다운로드",
@@ -793,6 +807,80 @@ if menu == "📤 출고요청서 (Qoo10)":
                     st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
             except Exception as e:
                 st.error(f"처리 중 오류: {e}")
+
+    # ─── 탭: 출고 이력 조회 ───
+    with tab_history:
+        st.markdown("**출고요청서 생성 이력 + 송장번호 추적**")
+        st.caption("Outbound 생성 시 자동 저장, QSM 송장 업로드 시 송장번호 자동 갱신.")
+
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            wb_filter = st.selectbox(
+                "송장 상태", ["전체", "송장 있음", "송장 없음"], index=0
+            )
+        with col_f2:
+            days_filter = st.number_input("최근 N일", min_value=1, max_value=365, value=30, step=1)
+        with col_f3:
+            search_hist = st.text_input("🔍 검색 (장바구니/송장/수취인)")
+
+        conds = ["generated_at >= (CURRENT_TIMESTAMP - INTERVAL '%s days')" % int(days_filter)]
+        params = []
+        if wb_filter == "송장 있음":
+            conds.append("waybill IS NOT NULL AND waybill != ''")
+        elif wb_filter == "송장 없음":
+            conds.append("(waybill IS NULL OR waybill = '')")
+        if search_hist:
+            conds.append("(qoo10_cart_no ILIKE %s OR waybill ILIKE %s OR recipient ILIKE %s)")
+            p = f"%{search_hist}%"
+            params += [p, p, p]
+
+        where = " AND ".join(conds)
+        df_hist = pg.query_df(f"""
+            SELECT generated_at, qoo10_cart_no, qoo10_order_no, sku_code, sku_name,
+                   planned_qty, recipient, postal_code, address, waybill, waybill_updated_at,
+                   qoo10_product_name, qoo10_option, source_file
+            FROM qoo10_outbound
+            WHERE {where}
+            ORDER BY generated_at DESC, qoo10_cart_no, sku_code
+            LIMIT 500
+        """, params)
+
+        c1, c2, c3 = st.columns(3)
+        total_rows = len(df_hist)
+        with_wb = int((df_hist['waybill'].notna() & (df_hist['waybill'] != '')).sum()) if not df_hist.empty else 0
+        c1.metric("조회 행수", total_rows)
+        c2.metric("송장 확보", with_wb)
+        c3.metric("송장 대기", total_rows - with_wb)
+
+        if df_hist.empty:
+            st.info("조건에 맞는 이력이 없습니다.")
+        else:
+            st.dataframe(
+                df_hist.rename(columns={
+                    'generated_at': '생성시각',
+                    'qoo10_cart_no': '장바구니번호',
+                    'qoo10_order_no': 'QSM주문번호',
+                    'sku_code': 'SKU코드',
+                    'sku_name': 'SKU상품명',
+                    'planned_qty': '수량',
+                    'recipient': '수취인',
+                    'postal_code': '우편번호',
+                    'address': '주소',
+                    'waybill': '송장번호',
+                    'waybill_updated_at': '송장갱신시각',
+                    'qoo10_product_name': 'Qoo10상품',
+                    'qoo10_option': 'Qoo10옵션',
+                    'source_file': '원본파일',
+                }),
+                width="stretch", hide_index=True,
+            )
+
+            csv_export = df_hist.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                "📥 조회 결과 CSV 다운로드", data=csv_export,
+                file_name=f"qoo10_outbound_history_{datetime.date.today().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+            )
 
     # ─── 탭3: 상품 매핑 관리 (1행=1매핑 + 전용 편집 영역) ───
     with tab_mapping:
