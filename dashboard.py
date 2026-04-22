@@ -533,96 +533,89 @@ if menu == "📤 출고요청서 (Qoo10)":
                     help="QSM에 송장번호 업로드할 주문번호 개수",
                 )
 
+                # 미매핑 에러만 실질 이슈. 취급안함은 정상 스킵이라 표시하지 않음.
+                missing_errors = [e for e in errors if e['원인'] == '상품 매핑 없음']
+
                 st.caption(
                     f"🚚 실제 출고 PCS (予定数量 합계): **{audit['total_picking_pcs']}** · "
-                    f"에러 **{len(errors)}건** · 주소 정제 **{len(addr_changes)}건**"
+                    f"미매핑 **{len(missing_errors)}건** · 주소 정제 **{len(addr_changes)}건**"
                 )
 
-                if errors:
-                    # 매핑 없음 vs 비활성으로 분리
-                    missing_errors = [e for e in errors if e['원인'] == '상품 매핑 없음']
-                    disabled_errors = [e for e in errors if e['원인'] != '상품 매핑 없음']
+                if missing_errors:
+                    uniq_missing_keys = {(e['상품명'], e['옵션정보']) for e in missing_errors}
+                    st.error(
+                        f"🆕 **신규 상품 매핑 필요**: 주문 {len(missing_errors)}건 "
+                        f"(고유 상품/옵션 조합 {len(uniq_missing_keys)}개). "
+                        "아래에서 등록하면 자동으로 페이지가 갱신되며 **파일은 유지**됩니다."
+                    )
 
-                    if disabled_errors:
-                        st.warning("매핑은 있으나 **취급 안함(비활성)** 상태인 주문입니다.")
-                        st.dataframe(pd.DataFrame(disabled_errors), width="stretch", hide_index=True)
+                    # 고유 (상품명, 옵션) 조합만 추출
+                    seen = set()
+                    uniq_missing = []
+                    for e in missing_errors:
+                        k = (e['상품명'], e['옵션정보'])
+                        if k not in seen:
+                            seen.add(k)
+                            uniq_missing.append(e)
 
-                    if missing_errors:
-                        # 고유 (상품명, 옵션) 조합 수 계산 (진행률 표시용)
-                        uniq_missing_keys = {(e['상품명'], e['옵션정보']) for e in missing_errors}
-                        st.error(
-                            f"🆕 **신규 상품 매핑 필요**: 주문 {len(missing_errors)}건 (고유 상품/옵션 조합 {len(uniq_missing_keys)}개). "
-                            "아래에서 등록하면 자동으로 페이지가 갱신되며 **파일은 유지**됩니다."
-                        )
+                    # KSE SKU 카탈로그 (드롭다운용)
+                    sku_catalog = qgen.load_kse_sku_catalog()
+                    if not sku_catalog:
+                        st.error("KSE SKU 카탈로그가 비어있습니다. 재고 업로드를 먼저 수행하세요.")
+                    else:
+                        sku_options = [f"{s['sku_name']} ({s['sku_code']})" for s in sku_catalog]
+                        sku_by_label = {lbl: s for lbl, s in zip(sku_options, sku_catalog)}
 
-                        # 고유 (상품명, 옵션) 조합만 추출
-                        seen = set()
-                        uniq_missing = []
-                        for e in missing_errors:
-                            k = (e['상품명'], e['옵션정보'])
-                            if k not in seen:
-                                seen.add(k)
-                                uniq_missing.append(e)
+                        for idx, e in enumerate(uniq_missing):
+                            with st.expander(
+                                f"➕ 매핑 등록 [{idx+1}/{len(uniq_missing)}] : "
+                                f"{e['상품명'][:50]}..." + (f" / {e['옵션정보'][:40]}" if e['옵션정보'] else ""),
+                                expanded=(idx == 0),
+                            ):
+                                st.caption(f"**Qoo10 상품명**: `{e['상품명']}`")
+                                st.caption(f"**Qoo10 옵션정보**: `{e['옵션정보'] or '(없음)'}`")
+                                st.markdown("**KSE SKU 구성** (세트 상품이면 여러 행 추가)")
 
-                        # KSE SKU 카탈로그 (드롭다운용)
-                        sku_catalog = qgen.load_kse_sku_catalog()
-                        if not sku_catalog:
-                            st.error("KSE SKU 카탈로그가 비어있습니다. 재고 업로드를 먼저 수행하세요.")
-                        else:
-                            # "상품명 (코드)" 형태의 옵션 리스트
-                            sku_options = [f"{s['sku_name']} ({s['sku_code']})" for s in sku_catalog]
-                            sku_by_label = {lbl: s for lbl, s in zip(sku_options, sku_catalog)}
+                                default_df = pd.DataFrame({
+                                    'KSE 상품': [sku_options[0]],
+                                    '수량': [1],
+                                })
+                                editor_key = f"mapeditor_{idx}_{hash((e['상품명'], e['옵션정보']))}"
+                                edited = st.data_editor(
+                                    default_df,
+                                    column_config={
+                                        'KSE 상품': st.column_config.SelectboxColumn(
+                                            options=sku_options, required=True, width="large",
+                                            help="재고/거래 이력의 SKU에서 선택"),
+                                        '수량': st.column_config.NumberColumn(
+                                            min_value=1, step=1, default=1, required=True, width="small"),
+                                    },
+                                    num_rows="dynamic",
+                                    key=editor_key,
+                                    hide_index=True,
+                                )
 
-                            for idx, e in enumerate(uniq_missing):
-                                with st.expander(
-                                    f"➕ 매핑 등록 [{idx+1}/{len(uniq_missing)}] : "
-                                    f"{e['상품명'][:50]}..." + (f" / {e['옵션정보'][:40]}" if e['옵션정보'] else ""),
-                                    expanded=(idx == 0),
-                                ):
-                                    st.caption(f"**Qoo10 상품명**: `{e['상품명']}`")
-                                    st.caption(f"**Qoo10 옵션정보**: `{e['옵션정보'] or '(없음)'}`")
-                                    st.markdown("**KSE SKU 구성** (세트 상품이면 여러 행 추가)")
-
-                                    default_df = pd.DataFrame({
-                                        'KSE 상품': [sku_options[0]],
-                                        '수량': [1],
-                                    })
-                                    editor_key = f"mapeditor_{idx}_{hash((e['상품명'], e['옵션정보']))}"
-                                    edited = st.data_editor(
-                                        default_df,
-                                        column_config={
-                                            'KSE 상품': st.column_config.SelectboxColumn(
-                                                options=sku_options, required=True, width="large",
-                                                help="재고/거래 이력의 SKU에서 선택"),
-                                            '수량': st.column_config.NumberColumn(
-                                                min_value=1, step=1, default=1, required=True, width="small"),
-                                        },
-                                        num_rows="dynamic",
-                                        key=editor_key,
-                                        hide_index=True,
-                                    )
-
-                                    if st.button(f"💾 매핑 저장", key=f"save_{editor_key}", type="primary"):
-                                        valid_rows = edited.dropna(subset=['KSE 상품'])
-                                        if valid_rows.empty:
-                                            st.error("최소 1개 SKU를 선택하세요.")
-                                        else:
-                                            skus_payload = []
-                                            for _, row in valid_rows.iterrows():
-                                                sku_info = sku_by_label[row['KSE 상품']]
-                                                qty = int(row['수량'] or 1)
-                                                skus_payload.append(
-                                                    (sku_info['sku_code'], sku_info['sku_name'], qty)
-                                                )
-                                            try:
-                                                qgen.add_mapping(e['상품명'], e['옵션정보'], skus_payload)
-                                                st.success(
-                                                    f"매핑 저장 완료: "
-                                                    + " + ".join([f"{n}×{q}" for _, n, q in skus_payload])
-                                                )
-                                                st.rerun()
-                                            except Exception as ex:
-                                                st.error(f"저장 실패: {ex}")
+                                if st.button(f"💾 매핑 저장", key=f"save_{editor_key}", type="primary"):
+                                    valid_rows = edited.dropna(subset=['KSE 상품'])
+                                    if valid_rows.empty:
+                                        st.error("최소 1개 SKU를 선택하세요.")
+                                    else:
+                                        skus_payload = []
+                                        for _, row in valid_rows.iterrows():
+                                            sku_info = sku_by_label[row['KSE 상품']]
+                                            qty = int(row['수량'] or 1)
+                                            skus_payload.append(
+                                                (sku_info['sku_code'], sku_info['sku_name'], qty)
+                                            )
+                                        try:
+                                            qgen.add_mapping(e['상품명'], e['옵션정보'], skus_payload)
+                                            st.success(
+                                                f"매핑 저장 완료: "
+                                                + " + ".join([f"{n}×{q}" for _, n, q in skus_payload])
+                                            )
+                                            st.rerun()
+                                        except Exception as ex:
+                                            st.error(f"저장 실패: {ex}")
 
                 # 주소 정제 검토 (필요시 사용자 최종 판단)
                 addr_approved = True  # 주소 변경 없으면 자동 통과
