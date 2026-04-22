@@ -916,7 +916,7 @@ if menu == "📤 출고요청서 (Qoo10)":
                     f"{unhandled} {_mark(no_kse_issue)}",
                     help=f"이 중 Tab ① 취급안함: {expected_disabled}건 (예정) · KSE 쪽 이슈: {kse_issue}건",
                 )
-                c3.metric("KSE 송장수개", f"{len(waybill_map)} {_mark(waybill_full)}")
+                c3.metric("KSE 송장개수", f"{len(waybill_map)} {_mark(waybill_full)}")
 
                 st.caption(
                     f"Tab ① 기준: 전체 {expected_carts}건 / KSE 접수 대상 {expected_oms_orders}건 "
