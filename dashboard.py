@@ -838,16 +838,20 @@ if menu == "📤 출고요청서 (Qoo10)":
         else:
             st.error("⚠️ 미완료 작업이 없습니다. Tab ① **출고요청서 생성**에서 먼저 작업을 시작하세요.")
 
-        # 수집 상태 테이블 (업로드 영역 위)
-        oms_uploaded_t2 = bool(st.session_state.get('oms_waybill_xlsx'))
-        # 실제 업로드 여부는 아래에서 바인딩되지만, 먼저 테이블 렌더 위해 임시 플래그
-        _tmp_oms = st.session_state.get('oms_waybill_xlsx')
+        # OMS 파일 업로드 (작업 내역 드롭다운과 테이블 사이)
+        oms_file = st.file_uploader(
+            "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
+            type=['xlsx'], key="oms_waybill_xlsx",
+            help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
+        )
+
+        # 수집 상태 테이블
         st.dataframe(
             pd.DataFrame([
                 {
                     '구분': 'KSE OMS 주문(출고&입고) 내역',
                     '취합 경로': 'KSE JP OMS > OMS > 주문관리 > 주문(출고&입고) - B2C > 엑셀다운',
-                    '취합여부': '✅' if _tmp_oms else '',
+                    '취합여부': '✅' if oms_file is not None else '',
                 },
             ]),
             hide_index=True, width="stretch",
@@ -856,13 +860,6 @@ if menu == "📤 출고요청서 (Qoo10)":
                 '취합 경로': st.column_config.TextColumn(width="large"),
                 '취합여부': st.column_config.TextColumn(width=8),
             },
-        )
-
-        # OMS 파일 업로드 (테이블 아래로 이동)
-        oms_file = st.file_uploader(
-            "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
-            type=['xlsx'], key="oms_waybill_xlsx",
-            help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
         )
 
         if not brief_bytes_t2:
@@ -877,14 +874,15 @@ if menu == "📤 출고요청서 (Qoo10)":
                 oms_map = qgen.parse_kse_oms_waybill(oms_file.getvalue())
                 waybill_map = {c: oms_map[c] for c in cart_nos if c in oms_map}
 
+                unhandled = len(cart_nos) - len(waybill_map)
                 c1, c2, c3 = st.columns(3)
-                c1.metric("QSM brief 주문", len(cart_nos))
-                c2.metric("KSE OMS 송장 추출", len(oms_map))
-                c3.metric("매칭 성공", f"{len(waybill_map)}/{len(cart_nos)}")
+                c1.metric("QSM 주문개수", len(cart_nos))
+                c2.metric("KSE 미취급 주문개수", unhandled)
+                c3.metric("KSE 송장수개", len(waybill_map))
 
-                if len(waybill_map) < len(cart_nos):
+                if unhandled > 0:
                     missing = [c for c in cart_nos if c not in waybill_map]
-                    st.warning(f"미매칭 (KSE 출고 미완료 or 취소 가능성): {', '.join(missing)}")
+                    st.warning(f"KSE 미취급 (출고 미완료 or 취소 가능성): {', '.join(missing)}")
 
                 if waybill_map:
                     csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
