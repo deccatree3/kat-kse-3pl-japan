@@ -245,6 +245,23 @@ st.set_page_config(
 st.title("📦 일본 3PL 대시보드")
 st.caption("KATCHERS × 国際エキスプレス (KOKUSAI EXPRESS)")
 
+# 다운로드 버튼 파란색 테마
+st.markdown("""
+<style>
+div[data-testid="stDownloadButton"] > button,
+div[data-testid="stDownloadButton"] > button:focus {
+    background-color: #1E88E5;
+    border: 1px solid #1E88E5;
+    color: #ffffff;
+}
+div[data-testid="stDownloadButton"] > button:hover {
+    background-color: #1565C0;
+    border-color: #1565C0;
+    color: #ffffff;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ─── Sidebar: 메뉴 선택 ───
 menu = st.sidebar.radio(
     "메뉴",
