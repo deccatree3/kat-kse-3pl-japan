@@ -19,7 +19,7 @@ venv/
 # Claude Code local settings
 .claude/
 
-# Streamlit
+# Streamlit (secrets만 제외, config.toml은 포함)
 .streamlit/secrets.toml
 
 # OS

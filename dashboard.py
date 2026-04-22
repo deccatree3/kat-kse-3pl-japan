@@ -18,6 +18,15 @@ from db import pg
 
 APP_CFG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
+# Streamlit Cloud 등 외부 환경: st.secrets → env 변수로 승격
+try:
+    if hasattr(st, "secrets"):
+        for key in ("DATABASE_URL",):
+            if key in st.secrets and not os.environ.get(key):
+                os.environ[key] = st.secrets[key]
+except Exception:
+    pass
+
 
 def load_app_config():
     default = {"raw_dir": os.path.join(os.path.dirname(__file__), "raw")}
@@ -37,6 +46,11 @@ def save_app_config(cfg):
 
 
 RAW_DIR = load_app_config()["raw_dir"]
+# 클라우드 환경 포함, 업로드 경로가 없으면 자동 생성
+try:
+    os.makedirs(RAW_DIR, exist_ok=True)
+except Exception:
+    pass
 
 
 def load_alert_config():
@@ -223,12 +237,12 @@ def compute_kat_side(year_month: str) -> dict:
 
 # ─── Page Config ───
 st.set_page_config(
-    page_title="3PL 물류비 대시보드",
+    page_title="일본 3PL 대시보드",
     page_icon="📦",
     layout="wide",
 )
 
-st.title("📦 일본 3PL 물류비 대시보드")
+st.title("📦 일본 3PL 대시보드")
 st.caption("KATCHERS × 国際エキスプレス (KOKUSAI EXPRESS)")
 
 # ─── Sidebar: 메뉴 선택 ───
