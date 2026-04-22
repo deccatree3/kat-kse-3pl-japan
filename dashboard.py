@@ -593,11 +593,13 @@ if menu == "📤 출고요청서 (Qoo10)":
                     help="QSM에 송장번호 업로드할 주문번호 개수",
                 )
 
-                # 미매핑 에러만 실질 이슈. 취급안함은 정상 스킵이라 표시하지 않음.
+                # 미매핑 에러만 실질 이슈. 취급안함은 정상 스킵.
                 missing_errors = [e for e in errors if e['원인'] == '상품 매핑 없음']
+                disabled_errors = [e for e in errors if e['원인'] == '매핑 비활성(취급 안함)']
 
                 st.caption(
                     f"🚚 실제 출고 PCS (予定数量 합계): **{audit['total_picking_pcs']}** · "
+                    f"KSE 미취급 **{len(disabled_errors)}건** · "
                     f"미매핑 **{len(missing_errors)}건** · 주소 정제 **{len(addr_changes)}건**"
                 )
 
