@@ -838,21 +838,16 @@ if menu == "📤 출고요청서 (Qoo10)":
         else:
             st.error("⚠️ 미완료 작업이 없습니다. Tab ① **출고요청서 생성**에서 먼저 작업을 시작하세요.")
 
-        # OMS 파일 업로드
-        oms_file = st.file_uploader(
-            "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
-            type=['xlsx'], key="oms_waybill_xlsx",
-            help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
-        )
-        oms_uploaded_t2 = oms_file is not None
-
-        # 수집 상태 테이블
+        # 수집 상태 테이블 (업로드 영역 위)
+        oms_uploaded_t2 = bool(st.session_state.get('oms_waybill_xlsx'))
+        # 실제 업로드 여부는 아래에서 바인딩되지만, 먼저 테이블 렌더 위해 임시 플래그
+        _tmp_oms = st.session_state.get('oms_waybill_xlsx')
         st.dataframe(
             pd.DataFrame([
                 {
                     '구분': 'KSE OMS 주문(출고&입고) 내역',
                     '취합 경로': 'KSE JP OMS > OMS > 주문관리 > 주문(출고&입고) - B2C > 엑셀다운',
-                    '취합여부': '✅' if oms_uploaded_t2 else '',
+                    '취합여부': '✅' if _tmp_oms else '',
                 },
             ]),
             hide_index=True, width="stretch",
@@ -861,6 +856,13 @@ if menu == "📤 출고요청서 (Qoo10)":
                 '취합 경로': st.column_config.TextColumn(width="large"),
                 '취합여부': st.column_config.TextColumn(width=8),
             },
+        )
+
+        # OMS 파일 업로드 (테이블 아래로 이동)
+        oms_file = st.file_uploader(
+            "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
+            type=['xlsx'], key="oms_waybill_xlsx",
+            help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
         )
 
         if not brief_bytes_t2:
