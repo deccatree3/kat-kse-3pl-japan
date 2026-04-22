@@ -925,13 +925,6 @@ if menu == "📤 출고요청서 (Qoo10)":
                 )
                 c3.metric("KSE 송장개수", f"{len(waybill_map)} {_mark(waybill_full)}")
 
-                st.caption(
-                    f"Tab ① 기준: 전체 {expected_carts}건 / KSE 접수 대상 {expected_oms_orders}건 "
-                    f"(취급안함 {expected_disabled}건 제외). "
-                    + ("✅ **모두 정상 처리**" if qsm_match and no_kse_issue and waybill_full
-                       else "⚠️ 아래 상세 확인")
-                )
-
                 if kse_issue > 0:
                     # Tab ① 취급안함 주문번호는 알 수 없지만, 전체 미매칭에서 초과분이 KSE 이슈
                     missing = [c for c in cart_nos if c not in waybill_map]
@@ -946,23 +939,21 @@ if menu == "📤 출고요청서 (Qoo10)":
                     )
 
                 if waybill_map:
-                    csv_bytes, missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
+                    csv_bytes, _missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
                     try:
-                        updated = qgen.update_outbound_waybills(waybill_map)
-                        st.caption(f"🗂 출고 이력 DB 송장번호 갱신: {updated}건")
+                        qgen.update_outbound_waybills(waybill_map)
                     except Exception as ex:
                         st.warning(f"DB 갱신 실패 (CSV 다운로드는 가능): {ex}")
-                    today_str = datetime.date.today().strftime('%Y%m%d')
+                    # 원본 brief 파일명 그대로 사용 (서식도 그대로)
+                    out_name = brief_name_t2 or "QSM_waybill.csv"
                     st.download_button(
-                        f"📥 QSM_waybill_{today_str}.csv 다운로드",
+                        f"📥 {out_name} 다운로드",
                         data=csv_bytes,
-                        file_name=f"QSM_waybill_{today_str}.csv",
+                        file_name=out_name,
                         mime="text/csv",
                         width="stretch",
                         type="primary",
                     )
-                    if missing:
-                        st.warning(f"생성된 CSV 중 송장번호 미입력 {len(missing)}건: {', '.join(missing)}")
                     # 완료 후 임시저장 consumed 처리
                     if brief_id_t2:
                         col_done, _ = st.columns([1, 3])

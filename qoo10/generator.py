@@ -685,27 +685,70 @@ def parse_kse_oms_waybill(xlsx_bytes: bytes) -> Dict[str, str]:
     return mapping
 
 
-def build_qsm_waybill_csv(brief_content: bytes, waybill_map: Dict[str, str]) -> bytes:
+def build_qsm_waybill_csv(brief_content: bytes, waybill_map: Dict[str, str]) -> Tuple[bytes, List[str]]:
     """
     brief.csv bytes + 장바구니번호→송장번호 매핑 → QSM 업로드용 CSV bytes.
+    **원본 서식(BOM, 라인 엔딩, 미변경 행의 바이트)을 최대한 그대로 보존**.
+    waybill 채울 행만 재직렬화, 나머지 행은 원본 라인 그대로.
     waybill_map: {장바구니번호: 송장번호}
     """
+    has_bom = brief_content.startswith(b'\xef\xbb\xbf')
     text = brief_content.decode('utf-8-sig')
-    reader = csv.DictReader(io.StringIO(text))
-    fieldnames = reader.fieldnames
-    out_rows = []
-    missing = []
-    for r in reader:
-        cart_no = r.get('장바구니번호', '').strip()
-        waybill = waybill_map.get(cart_no)
-        if waybill:
-            r['송장번호'] = waybill
-        else:
-            missing.append(cart_no)
-        out_rows.append(r)
 
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(out_rows)
-    return buf.getvalue().encode('utf-8-sig'), missing
+    # 원본 라인 엔딩 감지
+    if '\r\n' in text:
+        sep = '\r\n'
+    elif '\r' in text:
+        sep = '\r'
+    else:
+        sep = '\n'
+
+    lines = text.split(sep)
+    # 마지막 빈 줄 보존
+    trailing_empty = bool(lines) and lines[-1] == ''
+    if trailing_empty:
+        lines = lines[:-1]
+
+    if not lines:
+        return brief_content, []
+
+    # 헤더에서 컬럼 위치 찾기
+    header_line = lines[0]
+    headers = next(csv.reader(io.StringIO(header_line)))
+    try:
+        cart_idx = headers.index('장바구니번호')
+        waybill_idx = headers.index('송장번호')
+    except ValueError:
+        return brief_content, []
+
+    out_lines = [header_line]
+    missing = []
+    for line in lines[1:]:
+        if not line:
+            out_lines.append(line)
+            continue
+        fields = next(csv.reader(io.StringIO(line)))
+        if len(fields) <= max(cart_idx, waybill_idx):
+            out_lines.append(line)
+            continue
+        cart_no = (fields[cart_idx] or '').strip()
+        wb = waybill_map.get(cart_no)
+        if wb:
+            # 해당 행만 송장번호 채워 재직렬화
+            fields[waybill_idx] = wb
+            buf = io.StringIO()
+            csv.writer(buf, lineterminator='').writerow(fields)
+            out_lines.append(buf.getvalue())
+        else:
+            # 미매칭은 원본 라인 그대로 (바이트 손실 0)
+            out_lines.append(line)
+            missing.append(cart_no)
+
+    result = sep.join(out_lines)
+    if trailing_empty:
+        result += sep
+
+    out_bytes = result.encode('utf-8')
+    if has_bom:
+        out_bytes = b'\xef\xbb\xbf' + out_bytes
+    return out_bytes, missing
