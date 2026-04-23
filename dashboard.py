@@ -635,6 +635,21 @@ if menu == "📤 출고요청서 (Qoo10)":
                     f"미매핑 **{len(missing_errors)}건** · 주소 정제 **{len(addr_changes)}건**"
                 )
 
+                if disabled_errors:
+                    with st.expander(f"📋 KSE 미취급 내역 ({len(disabled_errors)}건)", expanded=False):
+                        st.dataframe(
+                            pd.DataFrame([
+                                {
+                                    '장바구니번호': e.get('장바구니번호', ''),
+                                    '주문번호': e.get('주문번호', ''),
+                                    '상품명': e.get('상품명', ''),
+                                    '옵션정보': e.get('옵션정보', ''),
+                                }
+                                for e in disabled_errors
+                            ]),
+                            hide_index=True, width="stretch",
+                        )
+
                 if missing_errors:
                     uniq_missing_keys = {(e['상품명'], e['옵션정보']) for e in missing_errors}
                     st.error(
