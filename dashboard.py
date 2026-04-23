@@ -888,11 +888,30 @@ if menu == "📤 출고요청서 (Qoo10)":
             st.error("⚠️ 미완료 작업이 없습니다. Tab ① **출고요청서 생성**에서 먼저 작업을 시작하세요.")
 
         # OMS 파일 업로드 (작업 내역 드롭다운과 테이블 사이)
-        oms_file = st.file_uploader(
-            "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
-            type=['xlsx'], key="oms_waybill_xlsx",
-            help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
-        )
+        up_col, no_ship_col = st.columns([4, 1])
+        with up_col:
+            oms_file = st.file_uploader(
+                "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
+                type=['xlsx'], key="oms_waybill_xlsx",
+                help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
+            )
+        with no_ship_col:
+            st.write("")  # 버튼을 파일 업로더 하단과 정렬
+            st.write("")
+            if st.button(
+                "🚫 KSE 출고건 없음",
+                help="모든 QSM 주문이 KSE 미취급(취급안함)이라 송장 업로드가 불필요한 경우 — 작업 완료처리",
+                disabled=(not brief_id_t2),
+                width="stretch",
+            ):
+                try:
+                    qgen.mark_brief_consumed(brief_id_t2)
+                    for k in ('qoo10_brief_bytes', 'qoo10_brief_name', 'qoo10_brief_id'):
+                        st.session_state.pop(k, None)
+                    st.success("완료처리됨 (KSE 출고건 없음)")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"실패: {ex}")
 
         # 수집 상태 테이블
         st.dataframe(
