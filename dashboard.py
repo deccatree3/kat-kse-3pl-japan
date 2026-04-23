@@ -891,7 +891,7 @@ if menu == "📤 출고요청서 (Qoo10)":
         up_col, no_ship_col = st.columns([4, 1])
         with up_col:
             oms_file = st.file_uploader(
-                "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
+                "KSE OMS 주문(출고&입고) 내역.xlsx 업로드 또는 KSE 출고건 없을 경우 'KSE 출고건 없음' 버튼 클릭",
                 type=['xlsx'], key="oms_waybill_xlsx",
                 help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
             )
