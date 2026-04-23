@@ -502,9 +502,34 @@ if menu == "📤 출고요청서 (Qoo10)":
 
     # ─── 탭1: 출고요청서 생성 ───
     with tab_gen:
-        # 업로드 영역 (맨 위)
+        det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
+        brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
+
+        # 수집 상태 요약 테이블 (맨 위)
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    '구분': '배송요청 상세 파일',
+                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
+                    '취합여부': '✅' if det_uploaded else '',
+                },
+                {
+                    '구분': '배송요청 요약 파일',
+                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
+                    '취합여부': '✅' if brief_uploaded else '',
+                },
+            ]),
+            hide_index=True, width="stretch",
+            column_config={
+                '구분': st.column_config.TextColumn(width="medium"),
+                '취합 경로': st.column_config.TextColumn(width="large"),
+                '취합여부': st.column_config.TextColumn(width=8),
+            },
+        )
+
+        # 업로드 영역 (테이블 아래)
         uploaded_q = st.file_uploader(
-            "QSM 자료 업로드",
+            "QSM 자료 2개를 업로드해주세요",
             type=['csv'], accept_multiple_files=True,
             key="qoo10_gen_files",
             help="파일명에 'detail' 포함 → 상세, 'brief' 포함 → 요약으로 자동 분류",
@@ -537,28 +562,6 @@ if menu == "📤 출고요청서 (Qoo10)":
 
         det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
         brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
-
-        # 수집 상태 요약 테이블 (업로드 영역 아래)
-        st.dataframe(
-            pd.DataFrame([
-                {
-                    '구분': '배송요청 상세 파일',
-                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
-                    '취합여부': '✅' if det_uploaded else '',
-                },
-                {
-                    '구분': '배송요청 요약 파일',
-                    '취합 경로': 'QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운',
-                    '취합여부': '✅' if brief_uploaded else '',
-                },
-            ]),
-            hide_index=True, width="stretch",
-            column_config={
-                '구분': st.column_config.TextColumn(width="medium"),
-                '취합 경로': st.column_config.TextColumn(width="large"),
-                '취합여부': st.column_config.TextColumn(width=8),
-            },
-        )
 
         det_bytes = st.session_state.get('qoo10_detail_bytes')
         det_name = st.session_state.get('qoo10_detail_name')
@@ -971,12 +974,19 @@ if menu == "📤 출고요청서 (Qoo10)":
                         width="stretch",
                         type="primary",
                     )
-                    # 송장 매칭 완전 성공 & KSE 이슈 없으면 자동 완료처리
-                    if brief_id_t2 and waybill_full and no_kse_issue and qsm_match:
-                        try:
-                            qgen.mark_brief_consumed(brief_id_t2)
-                        except Exception:
-                            pass
+                    # 완료 후 임시저장 consumed 처리 (수동 버튼)
+                    if brief_id_t2:
+                        col_done, _ = st.columns([1, 3])
+                        with col_done:
+                            if st.button("✅ 임시저장 완료처리", help="송장 업로드 완료 후 브리프 목록에서 제거"):
+                                try:
+                                    qgen.mark_brief_consumed(brief_id_t2)
+                                    for k in ('qoo10_brief_bytes', 'qoo10_brief_name', 'qoo10_brief_id'):
+                                        st.session_state.pop(k, None)
+                                    st.success("완료처리됨")
+                                    st.rerun()
+                                except Exception as ex:
+                                    st.error(f"실패: {ex}")
                 else:
                     st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
             except Exception as e:
