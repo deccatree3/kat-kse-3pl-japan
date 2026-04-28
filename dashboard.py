@@ -584,7 +584,7 @@ if menu == "📤 출고요청 (Qoo10)":
 
             if det_uploaded and brief_uploaded:
                 st.success("✅ 두 파일 모두 업로드 완료. 다음 단계로 진행하세요.")
-                if st.button("다음 단계 (② KSE 출고요청서 생성) →", type="primary"):
+                if st.button("다음 단계 →", key="goto_step2", type="primary"):
                     st.session_state['qoo10_step'] = 2
                     st.rerun()
 
@@ -792,7 +792,25 @@ if menu == "📤 출고요청 (Qoo10)":
 
                     mapping_complete = not [e for e in errors if e['원인'] == '상품 매핑 없음']
 
-                    if out_rows:
+                    # 일본 창고 출고 주문이 0이면 → KSE에 보낼 게 없으므로 작업 종료
+                    if japan_order_count == 0:
+                        st.info("📭 **일본 창고 출고 주문이 없습니다.** "
+                                "모든 주문이 국내 창고 출고 대상이라 KSE 출고요청서를 만들 필요가 없습니다.")
+                        if st.button("🏁 작업 종료", key="finish_no_japan", type="primary", width="stretch"):
+                            try:
+                                bid_close = st.session_state.get('qoo10_brief_id')
+                                if bid_close:
+                                    qgen.mark_brief_consumed(bid_close)
+                                for k in ('qoo10_detail_bytes', 'qoo10_detail_name',
+                                          'qoo10_brief_bytes', 'qoo10_brief_name',
+                                          'qoo10_brief_id', 'oms_bytes', 'oms_name'):
+                                    st.session_state.pop(k, None)
+                                st.session_state['qoo10_step'] = 1
+                                st.success("작업 종료 처리됨")
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"작업 종료 실패: {ex}")
+                    elif out_rows:
                         df_out = pd.DataFrame(out_rows)
                         st.markdown("**미리보기**")
                         st.dataframe(
@@ -829,6 +847,9 @@ if menu == "📤 출고요청 (Qoo10)":
                                 width="stretch",
                                 type="primary",
                             )
+                            if st.button("다음 단계 →", key="goto_step3", type="primary"):
+                                st.session_state['qoo10_step'] = 3
+                                st.rerun()
                 except Exception as e:
                     st.error(f"처리 중 오류: {e}")
 
@@ -889,36 +910,15 @@ if menu == "📤 출고요청 (Qoo10)":
             else:
                 st.error("⚠️ 미완료 작업이 없습니다. ① 단계에서 먼저 작업을 시작하세요.")
 
-            up_col, no_ship_col = st.columns([4, 1])
-            with up_col:
-                oms_file = st.file_uploader(
-                    "KSE OMS 주문(출고&입고) 내역.xlsx 업로드 또는 KSE 출고건 없을 경우 'KSE 출고건 없음' 버튼 클릭",
-                    type=['xlsx'], key="oms_waybill_xlsx",
-                    help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
-                )
+            oms_file = st.file_uploader(
+                "KSE OMS 주문(출고&입고) 내역.xlsx 업로드",
+                type=['xlsx'], key="oms_waybill_xlsx",
+                help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
+            )
             if oms_file is not None:
                 # OMS bytes를 세션에 저장 (Step 4에서 사용)
                 st.session_state['oms_bytes'] = oms_file.getvalue()
                 st.session_state['oms_name'] = oms_file.name
-            with no_ship_col:
-                st.write("")
-                st.write("")
-                if st.button(
-                    "🚫 KSE 출고건 없음",
-                    help="모든 QSM 주문이 KSE 미취급(취급안함)이라 송장 업로드가 불필요한 경우 — 작업 완료처리",
-                    disabled=(not brief_id_t2),
-                    width="stretch",
-                ):
-                    try:
-                        qgen.mark_brief_consumed(brief_id_t2)
-                        for k in ('qoo10_brief_bytes', 'qoo10_brief_name', 'qoo10_brief_id',
-                                  'oms_bytes', 'oms_name'):
-                            st.session_state.pop(k, None)
-                        st.success("완료처리됨 (KSE 출고건 없음)")
-                        st.session_state['qoo10_step'] = 1
-                        st.rerun()
-                    except Exception as ex:
-                        st.error(f"실패: {ex}")
 
             st.markdown(
                 "<div style='font-size:0.75em'>\n\n"
@@ -932,7 +932,7 @@ if menu == "📤 출고요청 (Qoo10)":
 
             if st.session_state.get('oms_bytes') and brief_bytes_t2:
                 st.success("✅ KSE OMS 파일 업로드 완료. 다음 단계로 진행하세요.")
-                if st.button("다음 단계 (④ QSM 송장등록 파일 생성) →", type="primary"):
+                if st.button("다음 단계 →", key="goto_step4", type="primary"):
                     st.session_state['qoo10_step'] = 4
                     st.rerun()
 
