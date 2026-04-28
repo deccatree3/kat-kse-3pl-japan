@@ -496,12 +496,47 @@ if menu == "📤 출고요청 (Qoo10)":
 
     st.subheader("📤 출고요청 (Qoo10)")
 
+    def _render_stepper(active: int):
+        """4단계 진행 표시: active = 현재 단계(1-4). 1-2는 Tab ①, 3-4는 Tab ②."""
+        steps = [
+            ("QSM 주문 취합", "QSM 파일 2개 업로드"),
+            ("KSE 출고요청서 생성", "OMS 업로드 파일 다운로드"),
+            ("KSE 송장번호 취합", "KSE OMS 주문 내역 업로드"),
+            ("QSM 송장등록 파일 생성", "송장 brief 파일 다운로드"),
+        ]
+        parts = ["<div style='display:flex;align-items:stretch;gap:4px;margin:6px 0 14px 0;flex-wrap:wrap'>"]
+        for i, (name, desc) in enumerate(steps, start=1):
+            if i == active:
+                bg, fg, bd = "#1E88E5", "#FFFFFF", "#1E88E5"
+            elif i < active:
+                bg, fg, bd = "#E3F2FD", "#1565C0", "#90CAF9"
+            else:
+                bg, fg, bd = "#F5F5F5", "#9E9E9E", "#E0E0E0"
+            parts.append(
+                f"<div style='flex:1;min-width:160px;background:{bg};color:{fg};"
+                f"border:1px solid {bd};border-radius:8px;padding:10px 12px'>"
+                f"<div style='font-weight:600;font-size:0.88em'>{i}. {name}</div>"
+                f"<div style='font-size:0.72em;opacity:0.85;margin-top:2px'>{desc}</div>"
+                "</div>"
+            )
+            if i < len(steps):
+                parts.append("<div style='display:flex;align-items:center;color:#BDBDBD;font-size:1.1em;padding:0 2px'>→</div>")
+        parts.append("</div>")
+        st.markdown("".join(parts), unsafe_allow_html=True)
+
     tab_gen, tab_waybill, tab_history, tab_mapping = st.tabs([
         "① QSM 주문취합/KSE 출고요청서 생성", "② QSM 송장 업로드", "📚 출고 이력", "🔧 상품 매핑"
     ])
 
     # ─── 탭1: 출고요청서 생성 ───
     with tab_gen:
+        _det_ready = bool(st.session_state.get('qoo10_detail_bytes'))
+        _brief_ready = bool(st.session_state.get('qoo10_brief_bytes'))
+        _render_stepper(2 if (_det_ready and _brief_ready) else 1)
+
+        st.markdown("#### ① QSM 주문 취합")
+        st.caption("QSM에서 다운로드한 detail / brief 파일 2개를 업로드하세요.")
+
         # 1) 테이블 슬롯 예약 (업로드 처리 후 최신 상태로 렌더링)
         table_slot = st.empty()
 
@@ -570,13 +605,15 @@ if menu == "📤 출고요청 (Qoo10)":
         else:
             try:
                 rows = qgen.parse_qsm_csv(det_bytes)
-                st.info(f"QSM 주문 {len(rows)}건 인식")
+
+                st.markdown("#### ② KSE 출고요청서 생성")
+                st.caption(f"QSM 주문 {len(rows)}건 인식. 검수 지표 확인 후 OMS 업로드 파일을 다운로드하세요.")
 
                 mappings = qgen.load_mappings()
                 out_rows, errors, addr_changes = qgen.generate_outbound_rows(rows, mappings)
                 audit = qgen.compute_audit(rows, out_rows, mappings)
 
-                st.markdown("#### 📊 검수 지표 (OMS 업로드 시 대조)")
+                st.markdown("##### 📊 검수 지표 (OMS 업로드 시 대조)")
                 st.caption("이 수치를 기록해두고 OMS 업로드 후 응답과 비교하세요.")
 
                 # 미매핑 에러만 실질 이슈. 취급안함은 정상 스킵.
@@ -812,6 +849,9 @@ if menu == "📤 출고요청 (Qoo10)":
 
     # ─── 탭2: QSM 송장번호 업로드 양식 ───
     with tab_waybill:
+        _oms_ready = bool(st.session_state.get('oms_waybill_xlsx'))
+        _render_stepper(4 if _oms_ready else 3)
+
         brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
         brief_name_t2 = st.session_state.get('qoo10_brief_name')
         brief_id_t2 = st.session_state.get('qoo10_brief_id')
@@ -830,6 +870,9 @@ if menu == "📤 출고요청 (Qoo10)":
             pending_briefs = qgen.list_pending_briefs(include_consumed=False, limit=20)
         except Exception:
             pass
+
+        st.markdown("#### ③ KSE 송장번호 취합")
+        st.caption("작업 내역을 선택한 뒤 KSE OMS 주문(출고&입고) 내역 파일을 업로드하세요.")
 
         # 1) 작업 내역 선택 (Tab ①의 미완료 작업들)
         if pending_briefs:
@@ -974,6 +1017,9 @@ if menu == "📤 출고요청 (Qoo10)":
                     )
 
                 if waybill_map:
+                    st.markdown("#### ④ QSM 송장등록 파일 생성")
+                    st.caption("아래 brief 파일을 다운로드하여 QSM 송장번호 등록 화면에 업로드하세요.")
+
                     csv_bytes, _missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
                     try:
                         qgen.update_outbound_waybills(waybill_map)
