@@ -847,6 +847,10 @@ if menu == "📤 출고요청 (Qoo10)":
                                 width="stretch",
                                 type="primary",
                             )
+                            st.info(
+                                "📤 **출고요청서 다운로드 후 KSE OMS에 업로드 해주세요.**  \n"
+                                "업로드 경로: **KSE OMS > 주문관리 > 주문업로드**"
+                            )
                             if st.button("다음 단계 →", key="goto_step3", type="primary"):
                                 st.session_state['qoo10_step'] = 3
                                 st.rerun()
