@@ -10,6 +10,7 @@ import urllib.request
 from collections import defaultdict
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.express as px
 import plotly.graph_objects as go
 import openpyxl
@@ -505,7 +506,7 @@ if menu == "📤 출고요청 (Qoo10)":
             ("KSE 송장번호 취합", "KSE OMS 주문 내역 업로드", 1),
             ("QSM 송장등록 파일 생성", "송장 brief 파일 다운로드", 1),
         ]
-        parts = ["<div style='display:flex;align-items:stretch;gap:4px;margin:6px 0 14px 0;flex-wrap:wrap'>"]
+        boxes = []
         for i, (name, desc, tab_idx) in enumerate(steps, start=1):
             if i == active:
                 bg, fg, bd = "#1E88E5", "#FFFFFF", "#1E88E5"
@@ -513,25 +514,33 @@ if menu == "📤 출고요청 (Qoo10)":
                 bg, fg, bd = "#E3F2FD", "#1565C0", "#90CAF9"
             else:
                 bg, fg, bd = "#F5F5F5", "#9E9E9E", "#E0E0E0"
-            # JS: 해당 인덱스의 tab 버튼을 클릭하여 전환
-            onclick = (
-                f"const t=window.parent.document.querySelectorAll('button[role=tab]');"
-                f"if(t[{tab_idx}])t[{tab_idx}].click();"
-            )
-            parts.append(
-                f"<div onclick=\"{onclick}\" "
-                f"onmouseover=\"this.style.opacity='0.85'\" "
-                f"onmouseout=\"this.style.opacity='1'\" "
+            boxes.append(
+                f"<div class='step-box' data-tab='{tab_idx}' "
                 f"style='cursor:pointer;flex:1;min-width:160px;background:{bg};color:{fg};"
                 f"border:1px solid {bd};border-radius:8px;padding:10px 12px;transition:opacity 0.15s'>"
-                f"<div style='font-weight:600;font-size:0.88em'>{i}. {name}</div>"
-                f"<div style='font-size:0.72em;opacity:0.85;margin-top:2px'>{desc}</div>"
+                f"<div style='font-weight:600;font-size:13px'>{i}. {name}</div>"
+                f"<div style='font-size:11px;opacity:0.85;margin-top:2px'>{desc}</div>"
                 "</div>"
             )
             if i < len(steps):
-                parts.append("<div style='display:flex;align-items:center;color:#BDBDBD;font-size:1.1em;padding:0 2px'>→</div>")
-        parts.append("</div>")
-        st.markdown("".join(parts), unsafe_allow_html=True)
+                boxes.append("<div style='display:flex;align-items:center;color:#BDBDBD;font-size:16px;padding:0 2px'>→</div>")
+
+        html = (
+            "<div style=\"font-family:'Source Sans Pro',sans-serif;display:flex;align-items:stretch;"
+            "gap:4px;margin:0;flex-wrap:wrap\">" + "".join(boxes) + "</div>"
+            "<script>"
+            "document.querySelectorAll('.step-box').forEach(function(el){"
+            "  el.addEventListener('mouseover', function(){this.style.opacity='0.85'});"
+            "  el.addEventListener('mouseout', function(){this.style.opacity='1'});"
+            "  el.addEventListener('click', function(){"
+            "    const idx = parseInt(this.dataset.tab);"
+            "    const tabs = window.parent.document.querySelectorAll('button[role=\"tab\"]');"
+            "    if (tabs[idx]) tabs[idx].click();"
+            "  });"
+            "});"
+            "</script>"
+        )
+        components.html(html, height=85)
 
     tab_gen, tab_waybill, tab_history, tab_mapping = st.tabs([
         "① QSM 주문취합/KSE 출고요청서 생성", "② QSM 송장 업로드", "📚 출고 이력", "🔧 상품 매핑"
