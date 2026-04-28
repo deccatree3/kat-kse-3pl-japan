@@ -497,24 +497,33 @@ if menu == "📤 출고요청 (Qoo10)":
     st.subheader("📤 출고요청 (Qoo10)")
 
     def _render_stepper(active: int):
-        """4단계 진행 표시: active = 현재 단계(1-4). 1-2는 Tab ①, 3-4는 Tab ②."""
+        """4단계 진행 표시 (클릭 시 해당 탭으로 이동). active = 현재 단계(1-4)."""
+        # 각 단계가 속한 탭 인덱스 (st.tabs 순서: ①=0, ②=1)
         steps = [
-            ("QSM 주문 취합", "QSM 파일 2개 업로드"),
-            ("KSE 출고요청서 생성", "OMS 업로드 파일 다운로드"),
-            ("KSE 송장번호 취합", "KSE OMS 주문 내역 업로드"),
-            ("QSM 송장등록 파일 생성", "송장 brief 파일 다운로드"),
+            ("QSM 주문 취합", "QSM 파일 2개 업로드", 0),
+            ("KSE 출고요청서 생성", "OMS 업로드 파일 다운로드", 0),
+            ("KSE 송장번호 취합", "KSE OMS 주문 내역 업로드", 1),
+            ("QSM 송장등록 파일 생성", "송장 brief 파일 다운로드", 1),
         ]
         parts = ["<div style='display:flex;align-items:stretch;gap:4px;margin:6px 0 14px 0;flex-wrap:wrap'>"]
-        for i, (name, desc) in enumerate(steps, start=1):
+        for i, (name, desc, tab_idx) in enumerate(steps, start=1):
             if i == active:
                 bg, fg, bd = "#1E88E5", "#FFFFFF", "#1E88E5"
             elif i < active:
                 bg, fg, bd = "#E3F2FD", "#1565C0", "#90CAF9"
             else:
                 bg, fg, bd = "#F5F5F5", "#9E9E9E", "#E0E0E0"
+            # JS: 해당 인덱스의 tab 버튼을 클릭하여 전환
+            onclick = (
+                f"const t=window.parent.document.querySelectorAll('button[role=tab]');"
+                f"if(t[{tab_idx}])t[{tab_idx}].click();"
+            )
             parts.append(
-                f"<div style='flex:1;min-width:160px;background:{bg};color:{fg};"
-                f"border:1px solid {bd};border-radius:8px;padding:10px 12px'>"
+                f"<div onclick=\"{onclick}\" "
+                f"onmouseover=\"this.style.opacity='0.85'\" "
+                f"onmouseout=\"this.style.opacity='1'\" "
+                f"style='cursor:pointer;flex:1;min-width:160px;background:{bg};color:{fg};"
+                f"border:1px solid {bd};border-radius:8px;padding:10px 12px;transition:opacity 0.15s'>"
                 f"<div style='font-weight:600;font-size:0.88em'>{i}. {name}</div>"
                 f"<div style='font-size:0.72em;opacity:0.85;margin-top:2px'>{desc}</div>"
                 "</div>"
