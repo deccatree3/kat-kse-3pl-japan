@@ -498,21 +498,22 @@ if menu == "📤 출고요청 (Qoo10)":
     st.subheader("📤 출고요청 (Qoo10)")
 
     def _render_stepper(active: int):
-        """5단계 진행 표시 (st.button 기반, 클릭 시 단계 전환). active = 현재 단계(1-5)."""
+        """6단계 진행 표시 (st.button 기반, 클릭 시 단계 전환). active = 현재 단계(1-6)."""
         steps = [
             (1, "1. QSM 주문 취합", "QSM 파일 2개 업로드"),
             (2, "2. KSE 출고요청서 생성", "OMS 업로드 파일 다운로드"),
             (3, "3. KSE 출고요청서 등록", "KSE OMS 업로드 안내"),
             (4, "4. KSE 송장번호 취합", "KSE OMS 주문 내역 업로드"),
             (5, "5. QSM 송장등록 파일 생성", "송장 brief 파일 다운로드"),
+            (6, "6. QSM 송장 등록", "QSM 업로드 안내"),
         ]
-        cols = st.columns([4, 0.4, 4, 0.4, 4, 0.4, 4, 0.4, 4])
-        for ai in (1, 3, 5, 7):
+        cols = st.columns([4, 0.4, 4, 0.4, 4, 0.4, 4, 0.4, 4, 0.4, 4])
+        for ai in (1, 3, 5, 7, 9):
             cols[ai].markdown(
                 "<div style='text-align:center;color:#BDBDBD;font-size:1.4em;padding-top:0.4em'>→</div>",
                 unsafe_allow_html=True,
             )
-        for ci, (n, title, desc) in zip((0, 2, 4, 6, 8), steps):
+        for ci, (n, title, desc) in zip((0, 2, 4, 6, 8, 10), steps):
             with cols[ci]:
                 btype = "primary" if n == active else "secondary"
                 if st.button(title, key=f"qoo10_step_btn_{n}", type=btype, width="stretch"):
@@ -1048,24 +1049,39 @@ if menu == "📤 출고요청 (Qoo10)":
                             width="stretch",
                             type="primary",
                         )
-                        if brief_id_t2:
-                            col_done, _ = st.columns([1, 3])
-                            with col_done:
-                                if st.button("✅ 임시저장 완료처리", help="송장 업로드 완료 후 브리프 목록에서 제거"):
-                                    try:
-                                        qgen.mark_brief_consumed(brief_id_t2)
-                                        for k in ('qoo10_brief_bytes', 'qoo10_brief_name',
-                                                  'qoo10_brief_id', 'oms_bytes', 'oms_name'):
-                                            st.session_state.pop(k, None)
-                                        st.success("완료처리됨")
-                                        st.session_state['qoo10_step'] = 1
-                                        st.rerun()
-                                    except Exception as ex:
-                                        st.error(f"실패: {ex}")
+                        if st.button("다음 단계 →", key="goto_step6", type="primary"):
+                            st.session_state['qoo10_step'] = 6
+                            st.rerun()
                     else:
                         st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
                 except Exception as e:
                     st.error(f"처리 중 오류: {e}")
+
+        # ═══ Step 6: QSM 송장 등록 (안내 전용) ═══
+        elif active_step == 6:
+            st.markdown("#### ⑥ QSM 송장 등록")
+            st.caption("앞 단계에서 다운로드한 송장 brief 파일을 QSM에 업로드하는 방법 안내.")
+
+            st.info(
+                "📌 **QSM 송장 업로드 경로**  \n"
+                "_경로 정보는 추후 추가 예정_"
+            )
+            st.markdown("> _상세 안내(스크린샷)는 추후 추가 예정._")
+
+            brief_id_t6 = st.session_state.get('qoo10_brief_id')
+            if st.button("✅ 작업 완료", key="finish_step6", type="primary", width="stretch"):
+                try:
+                    if brief_id_t6:
+                        qgen.mark_brief_consumed(brief_id_t6)
+                    for k in ('qoo10_detail_bytes', 'qoo10_detail_name',
+                              'qoo10_brief_bytes', 'qoo10_brief_name',
+                              'qoo10_brief_id', 'oms_bytes', 'oms_name'):
+                        st.session_state.pop(k, None)
+                    st.session_state['qoo10_step'] = 1
+                    st.success("작업 완료처리됨")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"실패: {ex}")
 
     # ─── 탭: 출고 이력 조회 ───
     with tab_history:
