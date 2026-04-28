@@ -541,14 +541,17 @@ if menu == "📤 출고요청 (Qoo10)":
         det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
         brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
 
-        # 3) 수집 상태 테이블 (마크다운 - 텍스트 모두 보이도록)
+        # 3) 수집 상태 테이블 (마크다운 - 텍스트 모두 보이도록, 글자 약간 축소)
         det_check = '✅' if det_uploaded else ''
         brief_check = '✅' if brief_uploaded else ''
         table_slot.markdown(
+            "<div style='font-size:0.85em'>\n\n"
             "| 구분 | 취합 경로 | 취합여부 |\n"
             "|------|----------|:-------:|\n"
             f"| 배송요청 상세 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | {det_check} |\n"
-            f"| 배송요청 요약 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | {brief_check} |"
+            f"| 배송요청 요약 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | {brief_check} |\n\n"
+            "</div>",
+            unsafe_allow_html=True,
         )
 
         det_bytes = st.session_state.get('qoo10_detail_bytes')
