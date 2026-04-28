@@ -607,14 +607,10 @@ if menu == "📤 출고요청 (Qoo10)":
                 rows = qgen.parse_qsm_csv(det_bytes)
 
                 st.markdown("#### ② KSE 출고요청서 생성")
-                st.caption(f"QSM 주문 {len(rows)}건 인식. 검수 지표 확인 후 OMS 업로드 파일을 다운로드하세요.")
 
                 mappings = qgen.load_mappings()
                 out_rows, errors, addr_changes = qgen.generate_outbound_rows(rows, mappings)
                 audit = qgen.compute_audit(rows, out_rows, mappings)
-
-                st.markdown("##### 📊 검수 지표 (OMS 업로드 시 대조)")
-                st.caption("이 수치를 기록해두고 OMS 업로드 후 응답과 비교하세요.")
 
                 # 미매핑 에러만 실질 이슈. 취급안함은 정상 스킵.
                 missing_errors = [e for e in errors if e['원인'] == '상품 매핑 없음']
