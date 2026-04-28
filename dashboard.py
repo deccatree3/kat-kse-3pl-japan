@@ -498,574 +498,554 @@ if menu == "📤 출고요청 (Qoo10)":
     st.subheader("📤 출고요청 (Qoo10)")
 
     def _render_stepper(active: int):
-        """4단계 진행 표시 (클릭 시 해당 탭으로 이동). active = 현재 단계(1-4)."""
-        # 각 단계가 속한 탭 인덱스 (st.tabs 순서: ①=0, ②=1)
+        """4단계 진행 표시 (st.button 기반, 클릭 시 단계 전환). active = 현재 단계(1-4)."""
         steps = [
-            ("QSM 주문 취합", "QSM 파일 2개 업로드", 0),
-            ("KSE 출고요청서 생성", "OMS 업로드 파일 다운로드", 0),
-            ("KSE 송장번호 취합", "KSE OMS 주문 내역 업로드", 1),
-            ("QSM 송장등록 파일 생성", "송장 brief 파일 다운로드", 1),
+            (1, "1. QSM 주문 취합", "QSM 파일 2개 업로드"),
+            (2, "2. KSE 출고요청서 생성", "OMS 업로드 파일 다운로드"),
+            (3, "3. KSE 송장번호 취합", "KSE OMS 주문 내역 업로드"),
+            (4, "4. QSM 송장등록 파일 생성", "송장 brief 파일 다운로드"),
         ]
-        boxes = []
-        for i, (name, desc, tab_idx) in enumerate(steps, start=1):
-            if i == active:
-                bg, fg, bd = "#1E88E5", "#FFFFFF", "#1E88E5"
-            elif i < active:
-                bg, fg, bd = "#E3F2FD", "#1565C0", "#90CAF9"
-            else:
-                bg, fg, bd = "#F5F5F5", "#9E9E9E", "#E0E0E0"
-            boxes.append(
-                f"<div class='step-box' data-tab='{tab_idx}' "
-                f"style='cursor:pointer;flex:1;min-width:160px;background:{bg};color:{fg};"
-                f"border:1px solid {bd};border-radius:8px;padding:10px 12px;transition:opacity 0.15s'>"
-                f"<div style='font-weight:600;font-size:13px'>{i}. {name}</div>"
-                f"<div style='font-size:11px;opacity:0.85;margin-top:2px'>{desc}</div>"
-                "</div>"
+        cols = st.columns([4, 0.4, 4, 0.4, 4, 0.4, 4])
+        for ai in (1, 3, 5):
+            cols[ai].markdown(
+                "<div style='text-align:center;color:#BDBDBD;font-size:1.4em;padding-top:0.4em'>→</div>",
+                unsafe_allow_html=True,
             )
-            if i < len(steps):
-                boxes.append("<div style='display:flex;align-items:center;color:#BDBDBD;font-size:16px;padding:0 2px'>→</div>")
+        for ci, (n, title, desc) in zip((0, 2, 4, 6), steps):
+            with cols[ci]:
+                btype = "primary" if n == active else "secondary"
+                if st.button(title, key=f"qoo10_step_btn_{n}", type=btype, width="stretch"):
+                    st.session_state['qoo10_step'] = n
+                    st.rerun()
+                st.caption(desc)
 
-        html = (
-            "<div style=\"font-family:'Source Sans Pro',sans-serif;display:flex;align-items:stretch;"
-            "gap:4px;margin:0;flex-wrap:wrap\">" + "".join(boxes) + "</div>"
-            "<script>"
-            "document.querySelectorAll('.step-box').forEach(function(el){"
-            "  el.addEventListener('mouseover', function(){this.style.opacity='0.85'});"
-            "  el.addEventListener('mouseout', function(){this.style.opacity='1'});"
-            "  el.addEventListener('click', function(){"
-            "    const idx = parseInt(this.dataset.tab);"
-            "    const tabs = window.parent.document.querySelectorAll('button[role=\"tab\"]');"
-            "    if (tabs[idx]) tabs[idx].click();"
-            "  });"
-            "});"
-            "</script>"
-        )
-        components.html(html, height=85)
-
-    tab_gen, tab_waybill, tab_history, tab_mapping = st.tabs([
-        "① QSM 주문취합/KSE 출고요청서 생성", "② QSM 송장 업로드", "📚 출고 이력", "🔧 상품 매핑"
+    tab_main, tab_history, tab_mapping = st.tabs([
+        "📤 출고요청", "📚 출고 이력", "🔧 상품 매핑"
     ])
 
-    # ─── 탭1: 출고요청서 생성 ───
-    with tab_gen:
-        _det_ready = bool(st.session_state.get('qoo10_detail_bytes'))
-        _brief_ready = bool(st.session_state.get('qoo10_brief_bytes'))
-        _render_stepper(2 if (_det_ready and _brief_ready) else 1)
-
-        st.markdown("#### ① QSM 주문 취합")
-        st.caption("QSM에서 다운로드한 detail / brief 파일 2개를 업로드하세요.")
-
-        # 1) 테이블 슬롯 예약 (업로드 처리 후 최신 상태로 렌더링)
-        table_slot = st.empty()
-
-        # 2) 업로드 영역 (테이블 아래)
-        uploaded_q = st.file_uploader(
-            "QSM 자료 2개를 업로드해주세요",
-            type=['csv'], accept_multiple_files=True,
-            key="qoo10_gen_files",
-            help="파일명에 'detail' 포함 → 상세, 'brief' 포함 → 요약으로 자동 분류",
-        )
-        if uploaded_q:
-            for f in uploaded_q:
-                nm = f.name.lower()
-                if 'detail' in nm:
-                    st.session_state['qoo10_detail_bytes'] = f.getvalue()
-                    st.session_state['qoo10_detail_name'] = f.name
-                elif 'brief' in nm:
-                    content = f.getvalue()
-                    st.session_state['qoo10_brief_bytes'] = content
-                    st.session_state['qoo10_brief_name'] = f.name
-                    # DB 임시저장 (다음 세션에서도 Tab ②에서 사용 가능)
-                    try:
-                        brief_rows_cnt = len(qgen.parse_qsm_csv(content))
-                        bid = qgen.save_pending_brief(content, f.name, brief_rows_cnt)
-                        st.session_state['qoo10_brief_id'] = bid
-                    except Exception as ex:
-                        st.warning(f"brief 임시저장 실패 (세션 내에서는 사용 가능): {ex}")
-
-        clear_c1, _ = st.columns([1, 4])
-        with clear_c1:
-            if st.button("🗑 모두 초기화", help="업로드 파일/진행 상태 초기화"):
-                for k in ('qoo10_detail_bytes', 'qoo10_detail_name',
-                          'qoo10_brief_bytes', 'qoo10_brief_name'):
-                    st.session_state.pop(k, None)
-                st.rerun()
-
-        det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
-        brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
-
-        # 3) 수집 상태 테이블 (마크다운 - 텍스트 모두 보이도록, 글자 약간 축소)
-        det_check = '✅' if det_uploaded else ''
-        brief_check = '✅' if brief_uploaded else ''
-        table_slot.markdown(
-            "<div style='font-size:0.75em'>\n\n"
-            "| 구분 | 취합 경로 | 파일명 예시 | 취합 |\n"
-            "|------|----------|------------|:-------:|\n"
-            f"| 배송요청 상세 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_detail_YYYYMMDD_HHMM.csv` | {det_check} |\n"
-            f"| 배송요청 요약 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_brief_YYYYMMDD_HHMM.csv` | {brief_check} |\n\n"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-        det_bytes = st.session_state.get('qoo10_detail_bytes')
-        det_name = st.session_state.get('qoo10_detail_name')
-
+    # ─── 메인 탭: 4단계 stepper + 단계별 페이지 ───
+    with tab_main:
+        active_step = int(st.session_state.get('qoo10_step', 1))
+        _render_stepper(active_step)
         st.markdown("---")
 
-        missing_up = []
-        if not det_bytes:
-            missing_up.append("상세(detail)")
-        if not brief_uploaded:
-            missing_up.append("요약(brief)")
+        # ═══ Step 1: QSM 주문 취합 ═══
+        if active_step == 1:
+            st.markdown("#### ① QSM 주문 취합")
+            st.caption("QSM에서 다운로드한 detail / brief 파일 2개를 업로드하세요.")
 
-        if missing_up:
-            st.error(f"⚠️ **{' / '.join(missing_up)} 파일 업로드 누락** — 두 파일 모두 업로드해야 다음 단계가 진행됩니다.")
-        else:
-            try:
-                rows = qgen.parse_qsm_csv(det_bytes)
+            table_slot = st.empty()
 
-                st.markdown("#### ② KSE 출고요청서 생성")
-
-                mappings = qgen.load_mappings()
-                out_rows, errors, addr_changes = qgen.generate_outbound_rows(rows, mappings)
-                audit = qgen.compute_audit(rows, out_rows, mappings)
-
-                # 미매핑 에러만 실질 이슈. 취급안함은 정상 스킵.
-                missing_errors = [e for e in errors if e['원인'] == '상품 매핑 없음']
-                disabled_errors = [e for e in errors if e['원인'] == '매핑 비활성(취급 안함)']
-
-                # brief 임시저장에 disabled_count 반영 (이미 저장됐으면 update)
-                bid_now = st.session_state.get('qoo10_brief_id')
-                brief_bytes_now = st.session_state.get('qoo10_brief_bytes')
-                brief_name_now = st.session_state.get('qoo10_brief_name')
-                if bid_now and brief_bytes_now:
-                    try:
-                        brief_cnt = len(qgen.parse_qsm_csv(brief_bytes_now))
-                        qgen.save_pending_brief(brief_bytes_now, brief_name_now,
-                                                brief_cnt, len(disabled_errors))
-                    except Exception:
-                        pass
-
-                japan_order_count = len(rows) - len(disabled_errors)
-                audit_table = pd.DataFrame([
-                    {'구분': '총 주문 개수',                 '수량': len(rows)},
-                    {'구분': '국내 창고 출고 주문 수',       '수량': len(disabled_errors)},
-                    {'구분': '일본 창고 출고 주문 수',       '수량': japan_order_count},
-                    {'구분': 'KSE OMS 업로드 ROW 개수',      '수량': audit['upload_row_count']},
-                    {'구분': '일본 창고 출고 송장번호 개수', '수량': audit['unique_carts']},
-                ])
-                st.dataframe(
-                    audit_table, hide_index=True, width="stretch",
-                    column_config={
-                        '구분': st.column_config.TextColumn(width="medium"),
-                        '수량': st.column_config.NumberColumn(width="small", format="%d"),
-                    },
-                )
-
-                st.caption(
-                    f"🚚 실제 출고 PCS (予定数量 합계): **{audit['total_picking_pcs']}** · "
-                    f"미매핑 **{len(missing_errors)}건** · 주소 정제 **{len(addr_changes)}건**"
-                )
-
-                if disabled_errors:
-                    with st.expander(f"📋 KSE 미취급 내역 ({len(disabled_errors)}건)", expanded=False):
-                        st.dataframe(
-                            pd.DataFrame([
-                                {
-                                    '장바구니번호': e.get('장바구니번호', ''),
-                                    '주문번호': e.get('주문번호', ''),
-                                    '상품명': e.get('상품명', ''),
-                                    '옵션정보': e.get('옵션정보', ''),
-                                }
-                                for e in disabled_errors
-                            ]),
-                            hide_index=True, width="stretch",
-                        )
-
-                if missing_errors:
-                    uniq_missing_keys = {(e['상품명'], e['옵션정보']) for e in missing_errors}
-                    st.error(
-                        f"🆕 **신규 상품 매핑 필요**: 주문 {len(missing_errors)}건 "
-                        f"(고유 상품/옵션 조합 {len(uniq_missing_keys)}개). "
-                        "아래에서 등록하면 자동으로 페이지가 갱신되며 **파일은 유지**됩니다."
-                    )
-
-                    # 고유 (상품명, 옵션) 조합만 추출
-                    seen = set()
-                    uniq_missing = []
-                    for e in missing_errors:
-                        k = (e['상품명'], e['옵션정보'])
-                        if k not in seen:
-                            seen.add(k)
-                            uniq_missing.append(e)
-
-                    # KSE SKU 카탈로그 (드롭다운용)
-                    sku_catalog = qgen.load_kse_sku_catalog()
-                    if not sku_catalog:
-                        st.error("KSE SKU 카탈로그가 비어있습니다. 재고 업로드를 먼저 수행하세요.")
-                    else:
-                        sku_options = [f"{s['sku_name']} ({s['sku_code']})" for s in sku_catalog]
-                        sku_by_label = {lbl: s for lbl, s in zip(sku_options, sku_catalog)}
-
-                        for idx, e in enumerate(uniq_missing):
-                            with st.expander(
-                                f"➕ 매핑 등록 [{idx+1}/{len(uniq_missing)}] : "
-                                f"{e['상품명'][:50]}..." + (f" / {e['옵션정보'][:40]}" if e['옵션정보'] else ""),
-                                expanded=(idx == 0),
-                            ):
-                                st.caption(f"**Qoo10 상품명**: `{e['상품명']}`")
-                                st.caption(f"**Qoo10 옵션정보**: `{e['옵션정보'] or '(없음)'}`")
-                                st.markdown("**KSE SKU 구성** (세트 상품이면 여러 행 추가)")
-
-                                default_df = pd.DataFrame({
-                                    'KSE 상품': [sku_options[0]],
-                                    '수량': [1],
-                                })
-                                editor_key = f"mapeditor_{idx}_{hash((e['상품명'], e['옵션정보']))}"
-                                edited = st.data_editor(
-                                    default_df,
-                                    column_config={
-                                        'KSE 상품': st.column_config.SelectboxColumn(
-                                            options=sku_options, required=True, width="large",
-                                            help="재고/거래 이력의 SKU에서 선택"),
-                                        '수량': st.column_config.NumberColumn(
-                                            min_value=1, step=1, default=1, required=True, width="small"),
-                                    },
-                                    num_rows="dynamic",
-                                    key=editor_key,
-                                    hide_index=True,
-                                )
-
-                                if st.button(f"💾 매핑 저장", key=f"save_{editor_key}", type="primary"):
-                                    valid_rows = edited.dropna(subset=['KSE 상품'])
-                                    if valid_rows.empty:
-                                        st.error("최소 1개 SKU를 선택하세요.")
-                                    else:
-                                        skus_payload = []
-                                        for _, row in valid_rows.iterrows():
-                                            sku_info = sku_by_label[row['KSE 상품']]
-                                            qty = int(row['수량'] or 1)
-                                            skus_payload.append(
-                                                (sku_info['sku_code'], sku_info['sku_name'], qty)
-                                            )
-                                        try:
-                                            qgen.add_mapping(e['상품명'], e['옵션정보'], skus_payload)
-                                            st.success(
-                                                f"매핑 저장 완료: "
-                                                + " + ".join([f"{n}×{q}" for _, n, q in skus_payload])
-                                            )
-                                            st.rerun()
-                                        except Exception as ex:
-                                            st.error(f"저장 실패: {ex}")
-
-                # 주소 정제 검토 (필요시 사용자 최종 판단)
-                addr_approved = True  # 주소 변경 없으면 자동 통과
-                final_addr_map = {}
-                if addr_changes:
-                    st.markdown("---")
-                    st.markdown("#### ⚠️ 주소 정제 검토 (사람의 최종 판단 필요)")
-                    st.caption(
-                        "자동 특수문자 제거 로직이 완벽하지 않아 **원본 주소와 정제 주소를 함께 표시**합니다. "
-                        "각 건마다 주소를 직접 확인하고, 필요시 **최종주소 컬럼을 수정**한 뒤 **승인** 체크를 켜세요. "
-                        "모두 승인되어야 출고요청서를 다운로드할 수 있습니다."
-                    )
-
-                    base = pd.DataFrame(addr_changes).copy()
-                    base['최종주소'] = base['정제주소']
-                    base['승인'] = False
-
-                    edited = st.data_editor(
-                        base,
-                        column_config={
-                            '장바구니번호': st.column_config.TextColumn(disabled=True, width="small"),
-                            '주문번호': st.column_config.TextColumn(disabled=True, width="small"),
-                            '원본주소': st.column_config.TextColumn(disabled=True, width="medium"),
-                            '정제주소': st.column_config.TextColumn(disabled=True, width="medium"),
-                            '사유': st.column_config.TextColumn(disabled=True, width="medium",
-                                help="원본에서 제거/치환된 문자와 이유"),
-                            '최종주소': st.column_config.TextColumn(required=True, width="medium",
-                                help="부적합하면 이 컬럼을 편집. 기본값=정제주소."),
-                            '승인': st.column_config.CheckboxColumn(required=True),
-                        },
-                        hide_index=True, width="stretch",
-                        column_order=('장바구니번호', '주문번호', '원본주소', '정제주소',
-                                      '사유', '최종주소', '승인'),
-                        key="addr_review",
-                    )
-
-                    approved_count = int(edited['승인'].sum())
-                    total_to_approve = len(edited)
-                    addr_approved = (approved_count == total_to_approve)
-
-                    if addr_approved:
-                        st.success(f"주소 검토 완료 ({total_to_approve}건 모두 승인됨)")
-                    else:
-                        st.warning(f"승인 대기: {total_to_approve - approved_count}건 남음 (전체 {total_to_approve}건)")
-
-                    # 장바구니번호 → 사용자 확정 주소 매핑
-                    for _, r in edited.iterrows():
-                        if r['승인']:
-                            final_addr_map[str(r['장바구니번호'])] = str(r['최종주소']).strip()
-
-                st.markdown("---")
-
-                # 사용자 승인 주소로 업데이트
-                if final_addr_map:
-                    for row in out_rows:
-                        cart = str(row.get('注文番号', ''))
-                        if cart in final_addr_map:
-                            row['基本住所'] = final_addr_map[cart]
-                            row['注文先基本住所'] = final_addr_map[cart]
-
-                # 선결 조건: 매핑 완료 + 주소 승인 완료
-                mapping_complete = not [e for e in errors if e['원인'] == '상품 매핑 없음']
-
-                if out_rows:
-                    df_out = pd.DataFrame(out_rows)
-                    st.markdown("**미리보기**")
-                    st.dataframe(
-                        df_out[['倉庫コード', '商品コード', '予定数量', '注文番号',
-                                '仕入先名/受取人名', '郵便番号コード', '基本住所']],
-                        width="stretch", hide_index=True,
-                    )
-
-                    if not mapping_complete:
-                        st.error(
-                            "⚠️ **신규 상품 매핑이 남아 있어 다운로드할 수 없습니다.** "
-                            "위의 '신규 상품 매핑 필요' 섹션에서 모두 등록하세요."
-                        )
-                    elif not addr_approved:
-                        st.error(
-                            "⚠️ **주소 검토가 완료되지 않았습니다.** "
-                            "주소 검토 표에서 모든 건을 승인해야 다운로드할 수 있습니다."
-                        )
-                    else:
-                        xlsx_bytes = qgen.build_outbound_xlsx(out_rows)
-                        today_str = datetime.date.today().strftime('%Y%m%d')
-                        # DB 기록 (송장은 나중에 채워짐)
+            uploaded_q = st.file_uploader(
+                "QSM 자료 2개를 업로드해주세요",
+                type=['csv'], accept_multiple_files=True,
+                key="qoo10_gen_files",
+                help="파일명에 'detail' 포함 → 상세, 'brief' 포함 → 요약으로 자동 분류",
+            )
+            if uploaded_q:
+                for f in uploaded_q:
+                    nm = f.name.lower()
+                    if 'detail' in nm:
+                        st.session_state['qoo10_detail_bytes'] = f.getvalue()
+                        st.session_state['qoo10_detail_name'] = f.name
+                    elif 'brief' in nm:
+                        content = f.getvalue()
+                        st.session_state['qoo10_brief_bytes'] = content
+                        st.session_state['qoo10_brief_name'] = f.name
                         try:
-                            n_saved = qgen.save_outbound_log(
-                                rows, out_rows, mappings, det_name or 'unknown.csv'
-                            )
-                            st.caption(f"🗂 출고 이력 DB 기록: {n_saved}건")
+                            brief_rows_cnt = len(qgen.parse_qsm_csv(content))
+                            bid = qgen.save_pending_brief(content, f.name, brief_rows_cnt)
+                            st.session_state['qoo10_brief_id'] = bid
                         except Exception as ex:
-                            st.warning(f"DB 기록 실패 (다운로드는 가능): {ex}")
-                        st.download_button(
-                            f"📥 Outbound_ship_conf_btoc_{today_str}.xlsx 다운로드",
-                            data=xlsx_bytes,
-                            file_name=f"Outbound_ship_conf_btoc_{today_str}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            width="stretch",
-                            type="primary",
+                            st.warning(f"brief 임시저장 실패 (세션 내에서는 사용 가능): {ex}")
+
+            clear_c1, _ = st.columns([1, 4])
+            with clear_c1:
+                if st.button("🗑 모두 초기화", help="업로드 파일/진행 상태 초기화"):
+                    for k in ('qoo10_detail_bytes', 'qoo10_detail_name',
+                              'qoo10_brief_bytes', 'qoo10_brief_name'):
+                        st.session_state.pop(k, None)
+                    st.rerun()
+
+            det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
+            brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
+
+            det_check = '✅' if det_uploaded else ''
+            brief_check = '✅' if brief_uploaded else ''
+            table_slot.markdown(
+                "<div style='font-size:0.75em'>\n\n"
+                "| 구분 | 취합 경로 | 파일명 예시 | 취합 |\n"
+                "|------|----------|------------|:-------:|\n"
+                f"| 배송요청 상세 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_detail_YYYYMMDD_HHMM.csv` | {det_check} |\n"
+                f"| 배송요청 요약 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_brief_YYYYMMDD_HHMM.csv` | {brief_check} |\n\n"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            if det_uploaded and brief_uploaded:
+                st.success("✅ 두 파일 모두 업로드 완료. 다음 단계로 진행하세요.")
+                if st.button("다음 단계 (② KSE 출고요청서 생성) →", type="primary"):
+                    st.session_state['qoo10_step'] = 2
+                    st.rerun()
+
+        # ═══ Step 2: KSE 출고요청서 생성 ═══
+        elif active_step == 2:
+            st.markdown("#### ② KSE 출고요청서 생성")
+            st.caption("검수 지표를 확인 후 OMS 업로드용 xlsx를 다운로드하세요.")
+
+            det_bytes = st.session_state.get('qoo10_detail_bytes')
+            det_name = st.session_state.get('qoo10_detail_name')
+            brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
+
+            if not det_bytes or not brief_uploaded:
+                st.error("⚠️ ① 단계에서 detail / brief 파일을 먼저 업로드하세요.")
+                if st.button("← ① 단계로 이동"):
+                    st.session_state['qoo10_step'] = 1
+                    st.rerun()
+            else:
+                try:
+                    rows = qgen.parse_qsm_csv(det_bytes)
+
+                    mappings = qgen.load_mappings()
+                    out_rows, errors, addr_changes = qgen.generate_outbound_rows(rows, mappings)
+                    audit = qgen.compute_audit(rows, out_rows, mappings)
+
+                    missing_errors = [e for e in errors if e['원인'] == '상품 매핑 없음']
+                    disabled_errors = [e for e in errors if e['원인'] == '매핑 비활성(취급 안함)']
+
+                    bid_now = st.session_state.get('qoo10_brief_id')
+                    brief_bytes_now = st.session_state.get('qoo10_brief_bytes')
+                    brief_name_now = st.session_state.get('qoo10_brief_name')
+                    if bid_now and brief_bytes_now:
+                        try:
+                            brief_cnt = len(qgen.parse_qsm_csv(brief_bytes_now))
+                            qgen.save_pending_brief(brief_bytes_now, brief_name_now,
+                                                    brief_cnt, len(disabled_errors))
+                        except Exception:
+                            pass
+
+                    japan_order_count = len(rows) - len(disabled_errors)
+                    audit_table = pd.DataFrame([
+                        {'구분': '총 주문 개수',                 '수량': len(rows)},
+                        {'구분': '국내 창고 출고 주문 수',       '수량': len(disabled_errors)},
+                        {'구분': '일본 창고 출고 주문 수',       '수량': japan_order_count},
+                        {'구분': 'KSE OMS 업로드 ROW 개수',      '수량': audit['upload_row_count']},
+                        {'구분': '일본 창고 출고 송장번호 개수', '수량': audit['unique_carts']},
+                    ])
+                    st.dataframe(
+                        audit_table, hide_index=True, width="stretch",
+                        column_config={
+                            '구분': st.column_config.TextColumn(width="medium"),
+                            '수량': st.column_config.NumberColumn(width="small", format="%d"),
+                        },
+                    )
+
+                    st.caption(
+                        f"🚚 실제 출고 PCS (予定数量 합계): **{audit['total_picking_pcs']}** · "
+                        f"미매핑 **{len(missing_errors)}건** · 주소 정제 **{len(addr_changes)}건**"
+                    )
+
+                    if disabled_errors:
+                        with st.expander(f"📋 KSE 미취급 내역 ({len(disabled_errors)}건)", expanded=False):
+                            st.dataframe(
+                                pd.DataFrame([
+                                    {
+                                        '장바구니번호': e.get('장바구니번호', ''),
+                                        '주문번호': e.get('주문번호', ''),
+                                        '상품명': e.get('상품명', ''),
+                                        '옵션정보': e.get('옵션정보', ''),
+                                    }
+                                    for e in disabled_errors
+                                ]),
+                                hide_index=True, width="stretch",
+                            )
+
+                    if missing_errors:
+                        uniq_missing_keys = {(e['상품명'], e['옵션정보']) for e in missing_errors}
+                        st.error(
+                            f"🆕 **신규 상품 매핑 필요**: 주문 {len(missing_errors)}건 "
+                            f"(고유 상품/옵션 조합 {len(uniq_missing_keys)}개). "
+                            "아래에서 등록하면 자동으로 페이지가 갱신되며 **파일은 유지**됩니다."
                         )
-            except Exception as e:
-                st.error(f"처리 중 오류: {e}")
 
-    # ─── 탭2: QSM 송장번호 업로드 양식 ───
-    with tab_waybill:
-        _oms_ready = bool(st.session_state.get('oms_waybill_xlsx'))
-        _render_stepper(4 if _oms_ready else 3)
+                        seen = set()
+                        uniq_missing = []
+                        for e in missing_errors:
+                            k = (e['상품명'], e['옵션정보'])
+                            if k not in seen:
+                                seen.add(k)
+                                uniq_missing.append(e)
 
-        brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
-        brief_name_t2 = st.session_state.get('qoo10_brief_name')
-        brief_id_t2 = st.session_state.get('qoo10_brief_id')
+                        sku_catalog = qgen.load_kse_sku_catalog()
+                        if not sku_catalog:
+                            st.error("KSE SKU 카탈로그가 비어있습니다. 재고 업로드를 먼저 수행하세요.")
+                        else:
+                            sku_options = [f"{s['sku_name']} ({s['sku_code']})" for s in sku_catalog]
+                            sku_by_label = {lbl: s for lbl, s in zip(sku_options, sku_catalog)}
 
-        # 세션에 brief가 있지만 DB 저장 안된 경우 자동 저장
-        if brief_bytes_t2 and not brief_id_t2:
+                            for idx, e in enumerate(uniq_missing):
+                                with st.expander(
+                                    f"➕ 매핑 등록 [{idx+1}/{len(uniq_missing)}] : "
+                                    f"{e['상품명'][:50]}..." + (f" / {e['옵션정보'][:40]}" if e['옵션정보'] else ""),
+                                    expanded=(idx == 0),
+                                ):
+                                    st.caption(f"**Qoo10 상품명**: `{e['상품명']}`")
+                                    st.caption(f"**Qoo10 옵션정보**: `{e['옵션정보'] or '(없음)'}`")
+                                    st.markdown("**KSE SKU 구성** (세트 상품이면 여러 행 추가)")
+
+                                    default_df = pd.DataFrame({
+                                        'KSE 상품': [sku_options[0]],
+                                        '수량': [1],
+                                    })
+                                    editor_key = f"mapeditor_{idx}_{hash((e['상품명'], e['옵션정보']))}"
+                                    edited = st.data_editor(
+                                        default_df,
+                                        column_config={
+                                            'KSE 상품': st.column_config.SelectboxColumn(
+                                                options=sku_options, required=True, width="large",
+                                                help="재고/거래 이력의 SKU에서 선택"),
+                                            '수량': st.column_config.NumberColumn(
+                                                min_value=1, step=1, default=1, required=True, width="small"),
+                                        },
+                                        num_rows="dynamic",
+                                        key=editor_key,
+                                        hide_index=True,
+                                    )
+
+                                    if st.button(f"💾 매핑 저장", key=f"save_{editor_key}", type="primary"):
+                                        valid_rows = edited.dropna(subset=['KSE 상품'])
+                                        if valid_rows.empty:
+                                            st.error("최소 1개 SKU를 선택하세요.")
+                                        else:
+                                            skus_payload = []
+                                            for _, row in valid_rows.iterrows():
+                                                sku_info = sku_by_label[row['KSE 상품']]
+                                                qty = int(row['수량'] or 1)
+                                                skus_payload.append(
+                                                    (sku_info['sku_code'], sku_info['sku_name'], qty)
+                                                )
+                                            try:
+                                                qgen.add_mapping(e['상품명'], e['옵션정보'], skus_payload)
+                                                st.success(
+                                                    f"매핑 저장 완료: "
+                                                    + " + ".join([f"{n}×{q}" for _, n, q in skus_payload])
+                                                )
+                                                st.rerun()
+                                            except Exception as ex:
+                                                st.error(f"저장 실패: {ex}")
+
+                    addr_approved = True
+                    final_addr_map = {}
+                    if addr_changes:
+                        st.markdown("---")
+                        st.markdown("##### ⚠️ 주소 정제 검토 (사람의 최종 판단 필요)")
+                        st.caption(
+                            "자동 특수문자 제거 로직이 완벽하지 않아 **원본 주소와 정제 주소를 함께 표시**합니다. "
+                            "각 건마다 주소를 직접 확인하고, 필요시 **최종주소 컬럼을 수정**한 뒤 **승인** 체크를 켜세요. "
+                            "모두 승인되어야 출고요청서를 다운로드할 수 있습니다."
+                        )
+
+                        base = pd.DataFrame(addr_changes).copy()
+                        base['최종주소'] = base['정제주소']
+                        base['승인'] = False
+
+                        edited = st.data_editor(
+                            base,
+                            column_config={
+                                '장바구니번호': st.column_config.TextColumn(disabled=True, width="small"),
+                                '주문번호': st.column_config.TextColumn(disabled=True, width="small"),
+                                '원본주소': st.column_config.TextColumn(disabled=True, width="medium"),
+                                '정제주소': st.column_config.TextColumn(disabled=True, width="medium"),
+                                '사유': st.column_config.TextColumn(disabled=True, width="medium",
+                                    help="원본에서 제거/치환된 문자와 이유"),
+                                '최종주소': st.column_config.TextColumn(required=True, width="medium",
+                                    help="부적합하면 이 컬럼을 편집. 기본값=정제주소."),
+                                '승인': st.column_config.CheckboxColumn(required=True),
+                            },
+                            hide_index=True, width="stretch",
+                            column_order=('장바구니번호', '주문번호', '원본주소', '정제주소',
+                                          '사유', '최종주소', '승인'),
+                            key="addr_review",
+                        )
+
+                        approved_count = int(edited['승인'].sum())
+                        total_to_approve = len(edited)
+                        addr_approved = (approved_count == total_to_approve)
+
+                        if addr_approved:
+                            st.success(f"주소 검토 완료 ({total_to_approve}건 모두 승인됨)")
+                        else:
+                            st.warning(f"승인 대기: {total_to_approve - approved_count}건 남음 (전체 {total_to_approve}건)")
+
+                        for _, r in edited.iterrows():
+                            if r['승인']:
+                                final_addr_map[str(r['장바구니번호'])] = str(r['최종주소']).strip()
+
+                    st.markdown("---")
+
+                    if final_addr_map:
+                        for row in out_rows:
+                            cart = str(row.get('注文番号', ''))
+                            if cart in final_addr_map:
+                                row['基本住所'] = final_addr_map[cart]
+                                row['注文先基本住所'] = final_addr_map[cart]
+
+                    mapping_complete = not [e for e in errors if e['원인'] == '상품 매핑 없음']
+
+                    if out_rows:
+                        df_out = pd.DataFrame(out_rows)
+                        st.markdown("**미리보기**")
+                        st.dataframe(
+                            df_out[['倉庫コード', '商品コード', '予定数量', '注文番号',
+                                    '仕入先名/受取人名', '郵便番号コード', '基本住所']],
+                            width="stretch", hide_index=True,
+                        )
+
+                        if not mapping_complete:
+                            st.error(
+                                "⚠️ **신규 상품 매핑이 남아 있어 다운로드할 수 없습니다.** "
+                                "위의 '신규 상품 매핑 필요' 섹션에서 모두 등록하세요."
+                            )
+                        elif not addr_approved:
+                            st.error(
+                                "⚠️ **주소 검토가 완료되지 않았습니다.** "
+                                "주소 검토 표에서 모든 건을 승인해야 다운로드할 수 있습니다."
+                            )
+                        else:
+                            xlsx_bytes = qgen.build_outbound_xlsx(out_rows)
+                            today_str = datetime.date.today().strftime('%Y%m%d')
+                            try:
+                                n_saved = qgen.save_outbound_log(
+                                    rows, out_rows, mappings, det_name or 'unknown.csv'
+                                )
+                                st.caption(f"🗂 출고 이력 DB 기록: {n_saved}건")
+                            except Exception as ex:
+                                st.warning(f"DB 기록 실패 (다운로드는 가능): {ex}")
+                            st.download_button(
+                                f"📥 Outbound_ship_conf_btoc_{today_str}.xlsx 다운로드",
+                                data=xlsx_bytes,
+                                file_name=f"Outbound_ship_conf_btoc_{today_str}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                width="stretch",
+                                type="primary",
+                            )
+                except Exception as e:
+                    st.error(f"처리 중 오류: {e}")
+
+        # ═══ Step 3: KSE 송장번호 취합 ═══
+        elif active_step == 3:
+            st.markdown("#### ③ KSE 송장번호 취합")
+            st.caption("작업 내역을 선택한 뒤 KSE OMS 주문(출고&입고) 내역 파일을 업로드하세요.")
+
+            brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
+            brief_name_t2 = st.session_state.get('qoo10_brief_name')
+            brief_id_t2 = st.session_state.get('qoo10_brief_id')
+
+            if brief_bytes_t2 and not brief_id_t2:
+                try:
+                    cnt = len(qgen.parse_qsm_csv(brief_bytes_t2))
+                    brief_id_t2 = qgen.save_pending_brief(brief_bytes_t2, brief_name_t2, cnt)
+                    st.session_state['qoo10_brief_id'] = brief_id_t2
+                except Exception:
+                    pass
+
+            pending_briefs = []
             try:
-                cnt = len(qgen.parse_qsm_csv(brief_bytes_t2))
-                brief_id_t2 = qgen.save_pending_brief(brief_bytes_t2, brief_name_t2, cnt)
-                st.session_state['qoo10_brief_id'] = brief_id_t2
+                pending_briefs = qgen.list_pending_briefs(include_consumed=False, limit=20)
             except Exception:
                 pass
 
-        pending_briefs = []
-        try:
-            pending_briefs = qgen.list_pending_briefs(include_consumed=False, limit=20)
-        except Exception:
-            pass
+            if pending_briefs:
+                labels = [
+                    (f"{p['created_at'].strftime('%Y-%m-%d %H:%M') if p['created_at'] else '시간미상'}"
+                     f" · 주문 {p['cart_count']}건")
+                    for p in pending_briefs
+                ]
+                id_by_label = {lbl: p['id'] for lbl, p in zip(labels, pending_briefs)}
+                default_label = labels[0]
+                if brief_id_t2:
+                    match = next((lbl for lbl, pid in id_by_label.items() if pid == brief_id_t2), None)
+                    if match:
+                        default_label = match
 
-        st.markdown("#### ③ KSE 송장번호 취합")
-        st.caption("작업 내역을 선택한 뒤 KSE OMS 주문(출고&입고) 내역 파일을 업로드하세요.")
-
-        # 1) 작업 내역 선택 (Tab ①의 미완료 작업들)
-        if pending_briefs:
-            labels = [
-                (f"{p['created_at'].strftime('%Y-%m-%d %H:%M') if p['created_at'] else '시간미상'}"
-                 f" · 주문 {p['cart_count']}건")
-                for p in pending_briefs
-            ]
-            id_by_label = {lbl: p['id'] for lbl, p in zip(labels, pending_briefs)}
-            default_label = labels[0]
-            if brief_id_t2:
-                match = next((lbl for lbl, pid in id_by_label.items() if pid == brief_id_t2), None)
-                if match:
-                    default_label = match
-
-            sel_label = st.selectbox(
-                "작업 내역 선택",
-                options=labels,
-                index=labels.index(default_label),
-                help="Tab ①에서 출고요청서 생성했던 작업 중 송장 업로드가 미완료인 것 (최근 순)",
-            )
-            sel_id = id_by_label[sel_label]
-            if sel_id != brief_id_t2 or brief_bytes_t2 is None:
-                try:
-                    content, fname = qgen.load_pending_brief(sel_id)
-                    brief_bytes_t2 = content
-                    brief_name_t2 = fname
-                    brief_id_t2 = sel_id
-                    st.session_state['qoo10_brief_bytes'] = content
-                    st.session_state['qoo10_brief_name'] = fname
-                    st.session_state['qoo10_brief_id'] = sel_id
-                except Exception as ex:
-                    st.error(f"작업 내역 로드 실패: {ex}")
-
-        # 2) 없으면 Tab ①로 안내
-        else:
-            st.error("⚠️ 미완료 작업이 없습니다. Tab ① **출고요청서 생성**에서 먼저 작업을 시작하세요.")
-
-        # OMS 파일 업로드 (작업 내역 드롭다운과 테이블 사이)
-        up_col, no_ship_col = st.columns([4, 1])
-        with up_col:
-            oms_file = st.file_uploader(
-                "KSE OMS 주문(출고&입고) 내역.xlsx 업로드 또는 KSE 출고건 없을 경우 'KSE 출고건 없음' 버튼 클릭",
-                type=['xlsx'], key="oms_waybill_xlsx",
-                help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
-            )
-        with no_ship_col:
-            st.write("")  # 버튼을 파일 업로더 하단과 정렬
-            st.write("")
-            if st.button(
-                "🚫 KSE 출고건 없음",
-                help="모든 QSM 주문이 KSE 미취급(취급안함)이라 송장 업로드가 불필요한 경우 — 작업 완료처리",
-                disabled=(not brief_id_t2),
-                width="stretch",
-            ):
-                try:
-                    qgen.mark_brief_consumed(brief_id_t2)
-                    for k in ('qoo10_brief_bytes', 'qoo10_brief_name', 'qoo10_brief_id'):
-                        st.session_state.pop(k, None)
-                    st.success("완료처리됨 (KSE 출고건 없음)")
-                    st.rerun()
-                except Exception as ex:
-                    st.error(f"실패: {ex}")
-
-        # 수집 상태 테이블
-        st.dataframe(
-            pd.DataFrame([
-                {
-                    '구분': 'KSE OMS 주문(출고&입고) 내역',
-                    '취합 경로': 'KSE JP OMS > OMS > 주문관리 > 주문(출고&입고) - B2C > 엑셀다운',
-                    '취합여부': '✅' if oms_file is not None else '',
-                },
-            ]),
-            hide_index=True, width="stretch",
-            column_config={
-                '구분': st.column_config.TextColumn(width="medium"),
-                '취합 경로': st.column_config.TextColumn(width="large"),
-                '취합여부': st.column_config.TextColumn(width=8),
-            },
-        )
-
-        if not brief_bytes_t2:
-            st.error("⚠️ Tab ① **출고요청서 생성**에서 먼저 요약(brief) 파일을 업로드하세요.")
-        elif not oms_file:
-            st.info("KSE OMS 주문내역 xlsx를 업로드하세요.")
-        else:
-            try:
-                brief_rows = qgen.parse_qsm_csv(brief_bytes_t2)
-                cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
-
-                oms_map = qgen.parse_kse_oms_waybill(oms_file.getvalue())
-                waybill_map = {c: oms_map[c] for c in cart_nos if c in oms_map}
-
-                unhandled = len(cart_nos) - len(waybill_map)
-
-                # Tab ① 저장값 (없으면 brief 직접 분석)
-                sel_meta = next(
-                    (p for p in pending_briefs if p['id'] == brief_id_t2), None
+                sel_label = st.selectbox(
+                    "작업 내역 선택",
+                    options=labels,
+                    index=labels.index(default_label),
+                    help="① 단계에서 만들어진 작업 중 송장 업로드가 미완료인 것 (최근 순)",
                 )
-                expected_carts = sel_meta['cart_count'] if sel_meta else len(cart_nos)
-
-                # 매핑 조회하여 실시간 disabled 수 계산 (Tab ① 안 봐도 동작)
-                try:
-                    _mappings_live = qgen.load_mappings()
-                    live_disabled = qgen.count_disabled_in_brief(brief_rows, _mappings_live)
-                except Exception:
-                    live_disabled = 0
-
-                saved_disabled = sel_meta['disabled_count'] if sel_meta else 0
-                expected_disabled = max(live_disabled, saved_disabled)
-
-                expected_oms_orders = expected_carts - expected_disabled
-                kse_issue = max(0, unhandled - expected_disabled)
-
-                def _mark(ok: bool) -> str:
-                    return "✅" if ok else "⚠️"
-
-                qsm_match = (len(cart_nos) == expected_carts)
-                no_kse_issue = (kse_issue == 0)
-                waybill_full = (len(waybill_map) == expected_oms_orders)
-
-                c1, c2, c3 = st.columns(3)
-                c1.metric("QSM 주문개수", f"{len(cart_nos)} {_mark(qsm_match)}")
-                c2.metric(
-                    "KSE 미취급 주문개수",
-                    f"{unhandled} {_mark(no_kse_issue)}",
-                    help=f"이 중 Tab ① 취급안함: {expected_disabled}건 (예정) · KSE 쪽 이슈: {kse_issue}건",
-                )
-                c3.metric("KSE 송장개수", f"{len(waybill_map)} {_mark(waybill_full)}")
-
-                if kse_issue > 0:
-                    # Tab ① 취급안함 주문번호는 알 수 없지만, 전체 미매칭에서 초과분이 KSE 이슈
-                    missing = [c for c in cart_nos if c not in waybill_map]
-                    st.warning(
-                        f"KSE 쪽 이슈 **{kse_issue}건** (취급안함 {expected_disabled}건 외 추가). "
-                        f"전체 미매칭 목록: {', '.join(missing)}"
-                    )
-                if not qsm_match:
-                    st.warning(
-                        f"Tab ① 주문 {expected_carts}건 ↔ 현재 brief {len(cart_nos)}건 불일치 "
-                        "(brief 파일이 변경됐을 가능성)."
-                    )
-
-                if waybill_map:
-                    st.markdown("#### ④ QSM 송장등록 파일 생성")
-                    st.caption("아래 brief 파일을 다운로드하여 QSM 송장번호 등록 화면에 업로드하세요.")
-
-                    csv_bytes, _missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
+                sel_id = id_by_label[sel_label]
+                if sel_id != brief_id_t2 or brief_bytes_t2 is None:
                     try:
-                        qgen.update_outbound_waybills(waybill_map)
+                        content, fname = qgen.load_pending_brief(sel_id)
+                        brief_bytes_t2 = content
+                        brief_name_t2 = fname
+                        brief_id_t2 = sel_id
+                        st.session_state['qoo10_brief_bytes'] = content
+                        st.session_state['qoo10_brief_name'] = fname
+                        st.session_state['qoo10_brief_id'] = sel_id
                     except Exception as ex:
-                        st.warning(f"DB 갱신 실패 (CSV 다운로드는 가능): {ex}")
-                    # 원본 brief 파일명 그대로 사용 (서식도 그대로)
-                    out_name = brief_name_t2 or "QSM_waybill.csv"
-                    st.download_button(
-                        f"📥 {out_name} 다운로드",
-                        data=csv_bytes,
-                        file_name=out_name,
-                        mime="text/csv",
-                        width="stretch",
-                        type="primary",
+                        st.error(f"작업 내역 로드 실패: {ex}")
+            else:
+                st.error("⚠️ 미완료 작업이 없습니다. ① 단계에서 먼저 작업을 시작하세요.")
+
+            up_col, no_ship_col = st.columns([4, 1])
+            with up_col:
+                oms_file = st.file_uploader(
+                    "KSE OMS 주문(출고&입고) 내역.xlsx 업로드 또는 KSE 출고건 없을 경우 'KSE 출고건 없음' 버튼 클릭",
+                    type=['xlsx'], key="oms_waybill_xlsx",
+                    help="KSE OMS에서 내려받은 주문 번호 ↔ 운송장 번호 자료 (취소건 자동 제외)",
+                )
+            if oms_file is not None:
+                # OMS bytes를 세션에 저장 (Step 4에서 사용)
+                st.session_state['oms_bytes'] = oms_file.getvalue()
+                st.session_state['oms_name'] = oms_file.name
+            with no_ship_col:
+                st.write("")
+                st.write("")
+                if st.button(
+                    "🚫 KSE 출고건 없음",
+                    help="모든 QSM 주문이 KSE 미취급(취급안함)이라 송장 업로드가 불필요한 경우 — 작업 완료처리",
+                    disabled=(not brief_id_t2),
+                    width="stretch",
+                ):
+                    try:
+                        qgen.mark_brief_consumed(brief_id_t2)
+                        for k in ('qoo10_brief_bytes', 'qoo10_brief_name', 'qoo10_brief_id',
+                                  'oms_bytes', 'oms_name'):
+                            st.session_state.pop(k, None)
+                        st.success("완료처리됨 (KSE 출고건 없음)")
+                        st.session_state['qoo10_step'] = 1
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"실패: {ex}")
+
+            st.markdown(
+                "<div style='font-size:0.75em'>\n\n"
+                "| 구분 | 취합 경로 | 취합 |\n"
+                "|------|----------|:----:|\n"
+                f"| KSE OMS 주문(출고&입고) 내역 | KSE JP OMS > OMS > 주문관리 > 주문(출고&입고) - B2C > 엑셀다운 | "
+                f"{'✅' if st.session_state.get('oms_bytes') else ''} |\n\n"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            if st.session_state.get('oms_bytes') and brief_bytes_t2:
+                st.success("✅ KSE OMS 파일 업로드 완료. 다음 단계로 진행하세요.")
+                if st.button("다음 단계 (④ QSM 송장등록 파일 생성) →", type="primary"):
+                    st.session_state['qoo10_step'] = 4
+                    st.rerun()
+
+        # ═══ Step 4: QSM 송장등록 파일 생성 ═══
+        elif active_step == 4:
+            st.markdown("#### ④ QSM 송장등록 파일 생성")
+            st.caption("아래 brief 파일을 다운로드하여 QSM 송장번호 등록 화면에 업로드하세요.")
+
+            brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
+            brief_name_t2 = st.session_state.get('qoo10_brief_name')
+            brief_id_t2 = st.session_state.get('qoo10_brief_id')
+            oms_bytes_t4 = st.session_state.get('oms_bytes')
+
+            if not brief_bytes_t2:
+                st.error("⚠️ ③ 단계에서 작업 내역을 먼저 선택하세요.")
+                if st.button("← ③ 단계로 이동"):
+                    st.session_state['qoo10_step'] = 3
+                    st.rerun()
+            elif not oms_bytes_t4:
+                st.error("⚠️ ③ 단계에서 KSE OMS 주문(출고&입고) 내역 파일을 먼저 업로드하세요.")
+                if st.button("← ③ 단계로 이동"):
+                    st.session_state['qoo10_step'] = 3
+                    st.rerun()
+            else:
+                try:
+                    brief_rows = qgen.parse_qsm_csv(brief_bytes_t2)
+                    cart_nos = [r.get('장바구니번호', '') for r in brief_rows]
+
+                    oms_map = qgen.parse_kse_oms_waybill(oms_bytes_t4)
+                    waybill_map = {c: oms_map[c] for c in cart_nos if c in oms_map}
+
+                    unhandled = len(cart_nos) - len(waybill_map)
+
+                    pending_briefs_t4 = []
+                    try:
+                        pending_briefs_t4 = qgen.list_pending_briefs(include_consumed=False, limit=20)
+                    except Exception:
+                        pass
+                    sel_meta = next((p for p in pending_briefs_t4 if p['id'] == brief_id_t2), None)
+                    expected_carts = sel_meta['cart_count'] if sel_meta else len(cart_nos)
+
+                    try:
+                        _mappings_live = qgen.load_mappings()
+                        live_disabled = qgen.count_disabled_in_brief(brief_rows, _mappings_live)
+                    except Exception:
+                        live_disabled = 0
+                    saved_disabled = sel_meta['disabled_count'] if sel_meta else 0
+                    expected_disabled = max(live_disabled, saved_disabled)
+
+                    expected_oms_orders = expected_carts - expected_disabled
+                    kse_issue = max(0, unhandled - expected_disabled)
+
+                    def _mark(ok: bool) -> str:
+                        return "✅" if ok else "⚠️"
+
+                    qsm_match = (len(cart_nos) == expected_carts)
+                    no_kse_issue = (kse_issue == 0)
+                    waybill_full = (len(waybill_map) == expected_oms_orders)
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("QSM 주문개수", f"{len(cart_nos)} {_mark(qsm_match)}")
+                    c2.metric(
+                        "KSE 미취급 주문개수",
+                        f"{unhandled} {_mark(no_kse_issue)}",
+                        help=f"이 중 ① 단계 취급안함: {expected_disabled}건 (예정) · KSE 쪽 이슈: {kse_issue}건",
                     )
-                    # 완료 후 임시저장 consumed 처리 (수동 버튼)
-                    if brief_id_t2:
-                        col_done, _ = st.columns([1, 3])
-                        with col_done:
-                            if st.button("✅ 임시저장 완료처리", help="송장 업로드 완료 후 브리프 목록에서 제거"):
-                                try:
-                                    qgen.mark_brief_consumed(brief_id_t2)
-                                    for k in ('qoo10_brief_bytes', 'qoo10_brief_name', 'qoo10_brief_id'):
-                                        st.session_state.pop(k, None)
-                                    st.success("완료처리됨")
-                                    st.rerun()
-                                except Exception as ex:
-                                    st.error(f"실패: {ex}")
-                else:
-                    st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
-            except Exception as e:
-                st.error(f"처리 중 오류: {e}")
+                    c3.metric("KSE 송장개수", f"{len(waybill_map)} {_mark(waybill_full)}")
+
+                    if kse_issue > 0:
+                        missing = [c for c in cart_nos if c not in waybill_map]
+                        st.warning(
+                            f"KSE 쪽 이슈 **{kse_issue}건** (취급안함 {expected_disabled}건 외 추가). "
+                            f"전체 미매칭 목록: {', '.join(missing)}"
+                        )
+                    if not qsm_match:
+                        st.warning(
+                            f"① 주문 {expected_carts}건 ↔ 현재 brief {len(cart_nos)}건 불일치 "
+                            "(brief 파일이 변경됐을 가능성)."
+                        )
+
+                    if waybill_map:
+                        csv_bytes, _missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
+                        try:
+                            qgen.update_outbound_waybills(waybill_map)
+                        except Exception as ex:
+                            st.warning(f"DB 갱신 실패 (CSV 다운로드는 가능): {ex}")
+                        out_name = brief_name_t2 or "QSM_waybill.csv"
+                        st.download_button(
+                            f"📥 {out_name} 다운로드",
+                            data=csv_bytes,
+                            file_name=out_name,
+                            mime="text/csv",
+                            width="stretch",
+                            type="primary",
+                        )
+                        if brief_id_t2:
+                            col_done, _ = st.columns([1, 3])
+                            with col_done:
+                                if st.button("✅ 임시저장 완료처리", help="송장 업로드 완료 후 브리프 목록에서 제거"):
+                                    try:
+                                        qgen.mark_brief_consumed(brief_id_t2)
+                                        for k in ('qoo10_brief_bytes', 'qoo10_brief_name',
+                                                  'qoo10_brief_id', 'oms_bytes', 'oms_name'):
+                                            st.session_state.pop(k, None)
+                                        st.success("완료처리됨")
+                                        st.session_state['qoo10_step'] = 1
+                                        st.rerun()
+                                    except Exception as ex:
+                                        st.error(f"실패: {ex}")
+                    else:
+                        st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
+                except Exception as e:
+                    st.error(f"처리 중 오류: {e}")
 
     # ─── 탭: 출고 이력 조회 ───
     with tab_history:
