@@ -497,7 +497,7 @@ if menu == "📤 출고요청 (Qoo10)":
     st.subheader("📤 Qoo10 출고요청서 / 송장번호 업로드")
 
     tab_gen, tab_waybill, tab_history, tab_mapping = st.tabs([
-        "① 출고요청서 생성", "② QSM 송장 업로드", "📚 출고 이력", "🔧 상품 매핑"
+        "① QSM 주문취합/KSE 출고요청서 생성", "② QSM 송장 업로드", "📚 출고 이력", "🔧 상품 매핑"
     ])
 
     # ─── 탭1: 출고요청서 생성 ───
