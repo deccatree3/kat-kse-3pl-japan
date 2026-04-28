@@ -585,7 +585,7 @@ if menu == "📤 출고요청 (Qoo10)":
                 out_rows, errors, addr_changes = qgen.generate_outbound_rows(rows, mappings)
                 audit = qgen.compute_audit(rows, out_rows, mappings)
 
-                st.markdown("#### 📊 검수 지표 (OMS 업로드 결과와 대조)")
+                st.markdown("#### 📊 검수 지표 (OMS 업로드 시 대조)")
                 st.caption("이 수치를 기록해두고 OMS 업로드 후 응답과 비교하세요.")
 
                 # 미매핑 에러만 실질 이슈. 취급안함은 정상 스킵.
