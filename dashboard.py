@@ -498,20 +498,21 @@ if menu == "📤 출고요청 (Qoo10)":
     st.subheader("📤 출고요청 (Qoo10)")
 
     def _render_stepper(active: int):
-        """4단계 진행 표시 (st.button 기반, 클릭 시 단계 전환). active = 현재 단계(1-4)."""
+        """5단계 진행 표시 (st.button 기반, 클릭 시 단계 전환). active = 현재 단계(1-5)."""
         steps = [
             (1, "1. QSM 주문 취합", "QSM 파일 2개 업로드"),
             (2, "2. KSE 출고요청서 생성", "OMS 업로드 파일 다운로드"),
-            (3, "3. KSE 송장번호 취합", "KSE OMS 주문 내역 업로드"),
-            (4, "4. QSM 송장등록 파일 생성", "송장 brief 파일 다운로드"),
+            (3, "3. KSE 출고요청서 등록", "KSE OMS 업로드 안내"),
+            (4, "4. KSE 송장번호 취합", "KSE OMS 주문 내역 업로드"),
+            (5, "5. QSM 송장등록 파일 생성", "송장 brief 파일 다운로드"),
         ]
-        cols = st.columns([4, 0.4, 4, 0.4, 4, 0.4, 4])
-        for ai in (1, 3, 5):
+        cols = st.columns([4, 0.4, 4, 0.4, 4, 0.4, 4, 0.4, 4])
+        for ai in (1, 3, 5, 7):
             cols[ai].markdown(
                 "<div style='text-align:center;color:#BDBDBD;font-size:1.4em;padding-top:0.4em'>→</div>",
                 unsafe_allow_html=True,
             )
-        for ci, (n, title, desc) in zip((0, 2, 4, 6), steps):
+        for ci, (n, title, desc) in zip((0, 2, 4, 6, 8), steps):
             with cols[ci]:
                 btype = "primary" if n == active else "secondary"
                 if st.button(title, key=f"qoo10_step_btn_{n}", type=btype, width="stretch"):
@@ -857,9 +858,24 @@ if menu == "📤 출고요청 (Qoo10)":
                 except Exception as e:
                     st.error(f"처리 중 오류: {e}")
 
-        # ═══ Step 3: KSE 송장번호 취합 ═══
+        # ═══ Step 3: KSE 출고요청서 등록 (안내 전용) ═══
         elif active_step == 3:
-            st.markdown("#### ③ KSE 송장번호 취합")
+            st.markdown("#### ③ KSE 출고요청서 등록")
+            st.caption("앞 단계에서 다운로드한 출고요청서를 KSE OMS에 업로드하는 방법 안내.")
+
+            st.info(
+                "📌 **KSE OMS 업로드 경로**  \n"
+                "**KSE OMS > 주문관리 > 주문업로드**"
+            )
+            st.markdown("> _상세 안내(스크린샷)는 추후 추가 예정._")
+
+            if st.button("다음 단계 →", key="goto_step4", type="primary"):
+                st.session_state['qoo10_step'] = 4
+                st.rerun()
+
+        # ═══ Step 4: KSE 송장번호 취합 ═══
+        elif active_step == 4:
+            st.markdown("#### ④ KSE 송장번호 취합")
             st.caption("작업 내역을 선택한 뒤 KSE OMS 주문(출고&입고) 내역 파일을 업로드하세요.")
 
             brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
@@ -936,13 +952,13 @@ if menu == "📤 출고요청 (Qoo10)":
 
             if st.session_state.get('oms_bytes') and brief_bytes_t2:
                 st.success("✅ KSE OMS 파일 업로드 완료. 다음 단계로 진행하세요.")
-                if st.button("다음 단계 →", key="goto_step4", type="primary"):
-                    st.session_state['qoo10_step'] = 4
+                if st.button("다음 단계 →", key="goto_step5", type="primary"):
+                    st.session_state['qoo10_step'] = 5
                     st.rerun()
 
-        # ═══ Step 4: QSM 송장등록 파일 생성 ═══
-        elif active_step == 4:
-            st.markdown("#### ④ QSM 송장등록 파일 생성")
+        # ═══ Step 5: QSM 송장등록 파일 생성 ═══
+        elif active_step == 5:
+            st.markdown("#### ⑤ QSM 송장등록 파일 생성")
             st.caption("아래 brief 파일을 다운로드하여 QSM 송장번호 등록 화면에 업로드하세요.")
 
             brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
@@ -951,14 +967,14 @@ if menu == "📤 출고요청 (Qoo10)":
             oms_bytes_t4 = st.session_state.get('oms_bytes')
 
             if not brief_bytes_t2:
-                st.error("⚠️ ③ 단계에서 작업 내역을 먼저 선택하세요.")
-                if st.button("← ③ 단계로 이동"):
-                    st.session_state['qoo10_step'] = 3
+                st.error("⚠️ ④ 단계에서 작업 내역을 먼저 선택하세요.")
+                if st.button("← ④ 단계로 이동"):
+                    st.session_state['qoo10_step'] = 4
                     st.rerun()
             elif not oms_bytes_t4:
-                st.error("⚠️ ③ 단계에서 KSE OMS 주문(출고&입고) 내역 파일을 먼저 업로드하세요.")
-                if st.button("← ③ 단계로 이동"):
-                    st.session_state['qoo10_step'] = 3
+                st.error("⚠️ ④ 단계에서 KSE OMS 주문(출고&입고) 내역 파일을 먼저 업로드하세요.")
+                if st.button("← ④ 단계로 이동"):
+                    st.session_state['qoo10_step'] = 4
                     st.rerun()
             else:
                 try:
