@@ -265,7 +265,7 @@ div[data-testid="stDownloadButton"] > button:hover {
 # ─── Sidebar: 메뉴 선택 ───
 menu = st.sidebar.radio(
     "메뉴",
-    ["📋 물류비 검토", "📦 재고 소진 예측", "📤 출고요청서 (Qoo10)"],
+    ["📋 물류비 검토", "📦 재고 소진 예측", "📤 출고요청 (Qoo10)"],
     label_visibility="collapsed",
 )
 st.sidebar.markdown("---")
@@ -491,7 +491,7 @@ if menu == "📦 재고 소진 예측":
 # ═══════════════════════════════════════════════
 # MENU: 출고요청서 (Qoo10 → KSE OMS)
 # ═══════════════════════════════════════════════
-if menu == "📤 출고요청서 (Qoo10)":
+if menu == "📤 출고요청 (Qoo10)":
     from qoo10 import generator as qgen
 
     st.subheader("📤 Qoo10 출고요청서 / 송장번호 업로드")
