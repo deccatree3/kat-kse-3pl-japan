@@ -504,7 +504,7 @@ if menu == "📤 출고요청 (Qoo10)":
             (2, "2. KSE 출고요청서 생성", "OMS 업로드 파일 다운로드"),
             (3, "3. KSE 출고요청서 등록", "KSE OMS 업로드 안내"),
             (4, "4. KSE 송장번호 취합", "KSE OMS 주문 내역 업로드"),
-            (5, "5. QSM 송장등록 파일 생성", "송장 brief 파일 다운로드"),
+            (5, "5. QSM 송장 파일 성생", "송장 brief 파일 다운로드"),
             (6, "6. QSM 송장 등록", "QSM 업로드 안내"),
         ]
         cols = st.columns([4, 0.4, 4, 0.4, 4, 0.4, 4, 0.4, 4, 0.4, 4])
@@ -957,9 +957,9 @@ if menu == "📤 출고요청 (Qoo10)":
                     st.session_state['qoo10_step'] = 5
                     st.rerun()
 
-        # ═══ Step 5: QSM 송장등록 파일 생성 ═══
+        # ═══ Step 5: QSM 송장 파일 성생 ═══
         elif active_step == 5:
-            st.markdown("#### ⑤ QSM 송장등록 파일 생성")
+            st.markdown("#### ⑤ QSM 송장 파일 성생")
             st.caption("아래 brief 파일을 다운로드하여 QSM 송장번호 등록 화면에 업로드하세요.")
 
             brief_bytes_t2 = st.session_state.get('qoo10_brief_bytes')
