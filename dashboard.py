@@ -546,7 +546,7 @@ if menu == "📤 출고요청 (Qoo10)":
         brief_check = '✅' if brief_uploaded else ''
         table_slot.markdown(
             "<div style='font-size:0.75em'>\n\n"
-            "| 구분 | 취합 경로 | 파일명 예시 | 취합여부 |\n"
+            "| 구분 | 취합 경로 | 파일명 예시 | 취합 |\n"
             "|------|----------|------------|:-------:|\n"
             f"| 배송요청 상세 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_detail_YYYYMMDD_HHMM.csv` | {det_check} |\n"
             f"| 배송요청 요약 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_brief_YYYYMMDD_HHMM.csv` | {brief_check} |\n\n"
