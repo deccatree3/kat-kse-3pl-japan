@@ -631,7 +631,7 @@ if menu == "📤 출고요청 (Qoo10)":
                         {'구분': '국내 창고 출고 주문 수',       '수량': len(disabled_errors)},
                         {'구분': '일본 창고 출고 주문 수',       '수량': japan_order_count},
                         {'구분': 'KSE OMS 업로드 ROW 개수',      '수량': audit['upload_row_count']},
-                        {'구분': '일본 창고 출고 송장번호 개수', '수량': audit['unique_carts']},
+                        {'구분': '일본 창고 출고 발송수',         '수량': audit['unique_carts']},
                     ])
                     st.dataframe(
                         audit_table, hide_index=True, width="stretch",
