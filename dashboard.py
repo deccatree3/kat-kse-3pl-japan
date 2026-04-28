@@ -588,31 +588,6 @@ if menu == "📤 출고요청 (Qoo10)":
                 st.markdown("#### 📊 검수 지표 (OMS 업로드 결과와 대조)")
                 st.caption("이 수치를 기록해두고 OMS 업로드 후 응답과 비교하세요.")
 
-                mc1, mc2, mc3, mc4 = st.columns(4)
-                def _chip(ok: bool) -> str:
-                    return "✅" if ok else "⚠️"
-
-                mc1.metric(
-                    "총 상품 수량",
-                    f"{audit['total_item_qty']} {_chip(audit['check_total_match_count'])}",
-                    help="매핑 수량 합 (SKU 단위). 업로드 개수와 일치해야 정상.",
-                )
-                mc2.metric(
-                    "주문 업로드 개수",
-                    f"{audit['upload_row_count']} {_chip(audit['check_rows_match'])}",
-                    help="KSE OMS 업로드될 row 개수",
-                )
-                mc3.metric(
-                    "송장번호 개수",
-                    f"{audit['unique_carts']} {_chip(audit['check_carts_match'])}",
-                    help="KSE OMS 주문(출고) 요청 개수 = 고유 장바구니번호",
-                )
-                mc4.metric(
-                    "주문번호 개수",
-                    f"{audit['unique_orders']} {_chip(audit['check_orders_covered'])}",
-                    help="QSM에 송장번호 업로드할 주문번호 개수",
-                )
-
                 # 미매핑 에러만 실질 이슈. 취급안함은 정상 스킵.
                 missing_errors = [e for e in errors if e['원인'] == '상품 매핑 없음']
                 disabled_errors = [e for e in errors if e['원인'] == '매핑 비활성(취급 안함)']
@@ -629,9 +604,24 @@ if menu == "📤 출고요청 (Qoo10)":
                     except Exception:
                         pass
 
+                audit_table = pd.DataFrame([
+                    {'구분': '총 주문 개수',           '수량': len(rows),                   '비고': '-'},
+                    {'구분': '국내 창고 출고 주문 수', '수량': len(disabled_errors),      '비고': '-'},
+                    {'구분': '일본 창고 출고 주문 수', '수량': audit['upload_row_count'], '비고': 'KSE OMS 업로드 될 row 개수'},
+                    {'구분': '일본 창고 출고 발송 수', '수량': audit['unique_carts'],     '비고': 'KSE OMS 주문(출고) 요청 개수'},
+                    {'구분': '예상 송장번호 개수',     '수량': audit['unique_orders'],    '비고': 'QSM에 업로드할 주문번호 개수'},
+                ])
+                st.dataframe(
+                    audit_table, hide_index=True, width="stretch",
+                    column_config={
+                        '구분': st.column_config.TextColumn(width="medium"),
+                        '수량': st.column_config.NumberColumn(width="small", format="%d"),
+                        '비고': st.column_config.TextColumn(width="large"),
+                    },
+                )
+
                 st.caption(
                     f"🚚 실제 출고 PCS (予定数量 합계): **{audit['total_picking_pcs']}** · "
-                    f"KSE 미취급 **{len(disabled_errors)}건** · "
                     f"미매핑 **{len(missing_errors)}건** · 주소 정제 **{len(addr_changes)}건**"
                 )
 
