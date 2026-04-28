@@ -1040,7 +1040,9 @@ if menu == "📤 출고요청 (Qoo10)":
                             qgen.update_outbound_waybills(waybill_map)
                         except Exception as ex:
                             st.warning(f"DB 갱신 실패 (CSV 다운로드는 가능): {ex}")
-                        out_name = brief_name_t2 or "QSM_waybill.csv"
+                        # 최초 업로드한 brief와 구분되도록 prefix 추가
+                        base_name = brief_name_t2 or "QSM_waybill.csv"
+                        out_name = f"(송장번호 입력됨) {base_name}"
                         st.download_button(
                             f"📥 {out_name} 다운로드",
                             data=csv_bytes,
