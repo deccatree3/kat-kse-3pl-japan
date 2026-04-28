@@ -494,7 +494,7 @@ if menu == "📦 재고 소진 예측":
 if menu == "📤 출고요청 (Qoo10)":
     from qoo10 import generator as qgen
 
-    st.subheader("📤 Qoo10 출고요청서 / 송장번호 업로드")
+    st.subheader("📤 출고요청 (Qoo10)")
 
     tab_gen, tab_waybill, tab_history, tab_mapping = st.tabs([
         "① QSM 주문취합/KSE 출고요청서 생성", "② QSM 송장 업로드", "📚 출고 이력", "🔧 상품 매핑"
