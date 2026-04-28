@@ -606,18 +606,17 @@ if menu == "📤 출고요청 (Qoo10)":
 
                 japan_order_count = len(rows) - len(disabled_errors)
                 audit_table = pd.DataFrame([
-                    {'구분': '총 주문 개수',           '수량': len(rows),                   '비고': '-'},
-                    {'구분': '국내 창고 출고 주문 수', '수량': len(disabled_errors),      '비고': '-'},
-                    {'구분': '일본 창고 출고 주문 수', '수량': japan_order_count,         '비고': '-'},
-                    {'구분': 'KSE OMS 업로드 ROW 개수', '수량': audit['upload_row_count'], '비고': 'outbound_ship 파일 row 수 (세트 분해 포함)'},
-                    {'구분': '일본 창고 출고 송장번호 개수', '수량': audit['unique_carts'], '비고': 'KSE OMS 주문(출고) 요청 개수'},
+                    {'구분': '총 주문 개수',                 '수량': len(rows)},
+                    {'구분': '국내 창고 출고 주문 수',       '수량': len(disabled_errors)},
+                    {'구분': '일본 창고 출고 주문 수',       '수량': japan_order_count},
+                    {'구분': 'KSE OMS 업로드 ROW 개수',      '수량': audit['upload_row_count']},
+                    {'구분': '일본 창고 출고 송장번호 개수', '수량': audit['unique_carts']},
                 ])
                 st.dataframe(
                     audit_table, hide_index=True, width="stretch",
                     column_config={
                         '구분': st.column_config.TextColumn(width="medium"),
                         '수량': st.column_config.NumberColumn(width="small", format="%d"),
-                        '비고': st.column_config.TextColumn(width="large"),
                     },
                 )
 
