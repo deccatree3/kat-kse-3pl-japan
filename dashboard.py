@@ -328,6 +328,78 @@ with st.sidebar.expander("⚙️ 파일 경로 설정", expanded=False):
         st.success(f"{len(saved)}개 파일을 `{monthly_ym}/` 에 저장:\n\n" +
                    "\n".join(f"• {n}" for n in saved))
 
+# ─── Sidebar: Qoo10 API 자격증명 ───
+with st.sidebar.expander("🔐 Qoo10 API 자격증명", expanded=False):
+    from qoo10 import api_client as _qapi_sb
+
+    _status = _qapi_sb.get_credentials_status()
+    if _status['configured']:
+        _exp = _status['expires_at']
+        _days = _status['days_remaining']
+        _level = _status['level']
+        if _exp and _days is not None:
+            _icon = {'green': '🟢', 'yellow': '🟡', 'red': '🔴', 'expired': '⚫'}.get(_level, '🔑')
+            _msg = (f"{_icon} 만료일 **{_exp}** "
+                    f"({'D-' + str(_days) if _days >= 0 else f'{abs(_days)}일 경과'})")
+            if _level == 'expired':
+                st.error(_msg)
+            elif _level == 'red':
+                st.error(_msg)
+            elif _level == 'yellow':
+                st.warning(_msg)
+            else:
+                st.success(_msg)
+        else:
+            st.success("✅ 자격증명 등록됨")
+        if _status.get('updated_at'):
+            st.caption(f"마지막 갱신: `{_status['updated_at']}`")
+    else:
+        st.warning("⚠️ 자격증명 미등록")
+
+    st.caption("입력란을 비워두면 기존 값이 유지됩니다 (부분 갱신 가능)")
+
+    _api_key_in = st.text_input(
+        "Certification Key", type="password",
+        placeholder="GiosisCertificationKey",
+        key="sb_qoo10_api_key",
+    )
+    _user_id_in = st.text_input(
+        "API ID (또는 판매자 ID)", placeholder="adminkatchers 등",
+        key="sb_qoo10_user_id",
+    )
+    _password_in = st.text_input(
+        "비밀번호", type="password", key="sb_qoo10_password",
+    )
+    _expires_in = st.date_input(
+        "만료일",
+        value=_status['expires_at'] if _status.get('expires_at')
+              else datetime.date.today() + datetime.timedelta(days=365),
+        key="sb_qoo10_expires_at",
+        help="Qoo10에서 통보받은 키 만료일을 입력 (보통 발급 후 1년)",
+    )
+
+    _b1, _b2 = st.columns(2)
+    with _b1:
+        if st.button("💾 저장", key="sb_save_qoo10", width="stretch", type="primary"):
+            ok = _qapi_sb.save_credentials_to_db(
+                api_key=_api_key_in.strip() or None,
+                user_id=_user_id_in.strip() or None,
+                password=_password_in.strip() or None,
+                expires_at=_expires_in,
+            )
+            if ok:
+                st.success("저장 완료")
+                st.rerun()
+            else:
+                st.error("저장 실패 (DB 연결 확인)")
+    with _b2:
+        if st.button("🧪 연결 테스트", key="sb_test_qoo10", width="stretch"):
+            try:
+                _sak = _qapi_sb.get_sak()
+                st.success(f"✅ 인증 성공 (SAK len={len(_sak)})")
+            except Exception as _e:
+                st.error(f"❌ {_e}")
+
 st.sidebar.markdown("---")
 
 # ═══════════════════════════════════════════════
@@ -550,6 +622,19 @@ if menu == "📤 출고요청 (Qoo10)":
 
             if mode.startswith("🚀"):
                 # ── API 자동 취합 모드 ──
+                _api_status = qapi.get_credentials_status()
+                if _api_status['expires_at'] and _api_status['days_remaining'] is not None:
+                    _icon = {'green': '🟢', 'yellow': '🟡', 'red': '🔴', 'expired': '⚫'}.get(
+                        _api_status['level'], '🔑')
+                    _d = _api_status['days_remaining']
+                    _exp_msg = (f"{_icon} API 키 만료일: **{_api_status['expires_at']}** "
+                                f"({'D-' + str(_d) if _d >= 0 else f'{abs(_d)}일 경과'})")
+                    if _api_status['level'] in ('expired', 'red'):
+                        st.error(_exp_msg + " — 사이드바에서 갱신 필요")
+                    elif _api_status['level'] == 'yellow':
+                        st.warning(_exp_msg)
+                    else:
+                        st.caption(_exp_msg)
                 st.caption("QSM **신규주문**(배송요청 상태) = QSM 배송관리 화면의 '신규주문 N건'과 동일.")
                 today = datetime.date.today()
 

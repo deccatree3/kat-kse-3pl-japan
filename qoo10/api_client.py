@@ -18,6 +18,25 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
+# DB 헬퍼 (지연 import — DB 미사용 환경에서도 import 자체는 동작하도록)
+_DB_AVAILABLE = None
+
+
+def _try_import_pg():
+    global _DB_AVAILABLE
+    if _DB_AVAILABLE is not None:
+        return _DB_AVAILABLE
+    try:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _base = os.path.dirname(_here)
+        if os.path.join(_base, 'db') not in sys.path:
+            sys.path.insert(0, os.path.join(_base, 'db'))
+        import pg as _pg  # type: ignore
+        _DB_AVAILABLE = _pg
+    except Exception:
+        _DB_AVAILABLE = False
+    return _DB_AVAILABLE
+
 BASE_URL = "https://api.qoo10.jp/GMKT.INC.Front.QAPIService/ebayjapan.qapi"
 CERT_URL = f"{BASE_URL}/CertificationAPI.CreateCertificationKey"
 
@@ -34,10 +53,136 @@ def _config_path() -> str:
     return os.path.join(os.path.dirname(here), 'config.json')
 
 
+CREDS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS qoo10_credentials (
+    id INTEGER PRIMARY KEY,
+    api_key TEXT,
+    user_id TEXT,
+    password TEXT,
+    expires_at DATE,
+    updated_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
+);
+"""
+
+
+def _ensure_creds_table():
+    pg = _try_import_pg()
+    if not pg:
+        return False
+    try:
+        conn = pg.connect()
+        with conn.cursor() as cur:
+            cur.execute(CREDS_TABLE_DDL)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def load_credentials_from_db() -> Dict:
+    """DB에서 단일 자격증명 행 로드. 없으면 빈 dict 반환."""
+    pg = _try_import_pg()
+    if not pg:
+        return {}
+    try:
+        _ensure_creds_table()
+        conn = pg.connect(autocommit=True)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT api_key, user_id, password, expires_at, updated_at
+                FROM qoo10_credentials WHERE id = 1
+            """)
+            row = cur.fetchone()
+        conn.close()
+        if not row:
+            return {}
+        return {
+            'api_key': row[0], 'user_id': row[1], 'password': row[2],
+            'expires_at': row[3], 'updated_at': row[4],
+        }
+    except Exception:
+        return {}
+
+
+def save_credentials_to_db(api_key: Optional[str] = None,
+                           user_id: Optional[str] = None,
+                           password: Optional[str] = None,
+                           expires_at: Optional[datetime.date] = None) -> bool:
+    """DB에 자격증명 upsert. 빈 값(None/'')은 기존 값 유지.
+    True/False 반환.
+    """
+    pg = _try_import_pg()
+    if not pg:
+        return False
+    _ensure_creds_table()
+    existing = load_credentials_from_db()
+    new_api = api_key if api_key else existing.get('api_key')
+    new_uid = user_id if user_id else existing.get('user_id')
+    new_pw = password if password else existing.get('password')
+    new_exp = expires_at if expires_at is not None else existing.get('expires_at')
+    try:
+        conn = pg.connect()
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO qoo10_credentials (id, api_key, user_id, password, expires_at, updated_at)
+                VALUES (1, %s, %s, %s, %s, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'))
+                ON CONFLICT (id) DO UPDATE SET
+                    api_key = EXCLUDED.api_key,
+                    user_id = EXCLUDED.user_id,
+                    password = EXCLUDED.password,
+                    expires_at = EXCLUDED.expires_at,
+                    updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
+            """, (new_api, new_uid, new_pw, new_exp))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def get_credentials_status() -> Dict:
+    """UI 표시용 상태 dict.
+    반환: {'configured': bool, 'expires_at': date|None, 'updated_at': str|None,
+           'days_remaining': int|None, 'level': 'green'/'yellow'/'red'/'expired'/None}
+    """
+    db = load_credentials_from_db()
+    creds = load_credentials()
+    configured = all([creds.get('api_key'), creds.get('user_id'), creds.get('password')])
+    exp = db.get('expires_at')
+    days = None
+    level = None
+    if exp:
+        # exp가 datetime.date 또는 str일 수 있음
+        if isinstance(exp, str):
+            try:
+                exp = datetime.datetime.strptime(exp[:10], '%Y-%m-%d').date()
+            except ValueError:
+                exp = None
+        if exp:
+            days = (exp - datetime.date.today()).days
+            if days < 0:
+                level = 'expired'
+            elif days <= 30:
+                level = 'red'
+            elif days <= 60:
+                level = 'yellow'
+            else:
+                level = 'green'
+    return {
+        'configured': configured,
+        'expires_at': exp,
+        'updated_at': db.get('updated_at'),
+        'days_remaining': days,
+        'level': level,
+    }
+
+
 def load_credentials() -> Dict[str, str]:
-    """자격증명 로드 우선순위: 환경변수 > Streamlit secrets > config.json.
-    - 로컬: 보통 config.json에서 읽음
-    - Streamlit Cloud: Settings > Secrets에 등록한 값을 st.secrets로 읽음
+    """자격증명 로드 우선순위: 환경변수 > Streamlit secrets > DB > config.json.
+    - 운영 배포: 환경변수 또는 Streamlit secrets에 직접 주입
+    - 사용자 입력: DB (사이드바 UI에서 저장)
+    - 로컬 개발: config.json
     """
     creds = {'api_key': None, 'user_id': None, 'password': None}
 
@@ -53,7 +198,16 @@ def load_credentials() -> Dict[str, str]:
         except (OSError, json.JSONDecodeError):
             pass
 
-    # 2) Streamlit secrets (Cloud 환경 또는 .streamlit/secrets.toml)
+    # 2) DB (사용자가 사이드바 UI에서 저장한 값)
+    db_creds = load_credentials_from_db()
+    if db_creds.get('api_key'):
+        creds['api_key'] = db_creds['api_key']
+    if db_creds.get('user_id'):
+        creds['user_id'] = db_creds['user_id']
+    if db_creds.get('password'):
+        creds['password'] = db_creds['password']
+
+    # 3) Streamlit secrets (Cloud 환경 또는 .streamlit/secrets.toml)
     try:
         import streamlit as _st  # type: ignore
         try:
@@ -73,7 +227,7 @@ def load_credentials() -> Dict[str, str]:
     except ImportError:
         pass
 
-    # 3) 환경변수 (최우선 — 명시적 override 의도로 간주)
+    # 4) 환경변수 (최우선 — 명시적 override 의도로 간주)
     creds['api_key'] = os.environ.get('QOO10_API_KEY') or creds['api_key']
     creds['user_id'] = os.environ.get('QOO10_USER_ID') or creds['user_id']
     creds['password'] = os.environ.get('QOO10_PASSWORD') or creds['password']
