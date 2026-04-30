@@ -494,6 +494,7 @@ if menu == "📦 재고 소진 예측":
 # ═══════════════════════════════════════════════
 if menu == "📤 출고요청 (Qoo10)":
     from qoo10 import generator as qgen
+    from qoo10 import api_client as qapi
 
     st.subheader("📤 출고요청 (Qoo10)")
 
@@ -534,61 +535,131 @@ if menu == "📤 출고요청 (Qoo10)":
         # ═══ Step 1: QSM 주문 취합 ═══
         if active_step == 1:
             st.markdown("#### ① QSM 주문 취합")
-            st.caption("QSM에서 다운로드한 detail / brief 파일 2개를 업로드하세요.")
 
-            table_slot = st.empty()
-
-            uploaded_q = st.file_uploader(
-                "QSM 자료 2개를 업로드해주세요",
-                type=['csv'], accept_multiple_files=True,
-                key="qoo10_gen_files",
-                help="파일명에 'detail' 포함 → 상세, 'brief' 포함 → 요약으로 자동 분류",
+            api_available = qapi.has_credentials()
+            mode_options = (["🚀 QSM API로 가져오기 (자동)", "📄 CSV 업로드 (수동)"]
+                            if api_available else ["📄 CSV 업로드 (수동)"])
+            mode = st.radio(
+                "취합 방식",
+                options=mode_options,
+                horizontal=True,
+                key="step1_mode",
+                help=None if api_available else
+                     "Qoo10 API 자격증명이 config.json에 없어 자동 취합 비활성화됨",
             )
-            if uploaded_q:
-                for f in uploaded_q:
-                    nm = f.name.lower()
-                    if 'detail' in nm:
-                        st.session_state['qoo10_detail_bytes'] = f.getvalue()
-                        st.session_state['qoo10_detail_name'] = f.name
-                    elif 'brief' in nm:
-                        content = f.getvalue()
-                        st.session_state['qoo10_brief_bytes'] = content
-                        st.session_state['qoo10_brief_name'] = f.name
+
+            if mode.startswith("🚀"):
+                # ── API 자동 취합 모드 ──
+                st.caption("QSM **신규주문**(배송요청 상태) = QSM 배송관리 화면의 '신규주문 N건'과 동일.")
+                today = datetime.date.today()
+
+                if st.button("🔄 QSM에서 가져오기", key="step1_api_fetch",
+                             type="primary", width="stretch"):
+                    # 신규주문은 처리 전까지 ShippingStat=2에 누적되므로 30일 윈도우면 충분
+                    sd = (today - datetime.timedelta(days=30)).strftime('%Y%m%d')
+                    ed = today.strftime('%Y%m%d')
+                    with st.spinner(f"QSM API 조회 중 (최근 30일 신규주문)..."):
                         try:
-                            brief_rows_cnt = len(qgen.parse_qsm_csv(content))
-                            bid = qgen.save_pending_brief(content, f.name, brief_rows_cnt)
-                            st.session_state['qoo10_brief_id'] = bid
+                            sak = qapi.get_sak()
+                            raw = qapi.fetch_orders(sak, sd, ed,
+                                                    qapi.SHIPPING_STAT_REQUEST)
                         except Exception as ex:
-                            st.warning(f"brief 임시저장 실패 (세션 내에서는 사용 가능): {ex}")
+                            st.error(f"API 호출 실패: {ex}")
+                            raw = None
 
-            clear_c1, _ = st.columns([1, 4])
-            with clear_c1:
-                if st.button("🗑 모두 초기화", help="업로드 파일/진행 상태 초기화"):
-                    for k in ('qoo10_detail_bytes', 'qoo10_detail_name',
-                              'qoo10_brief_bytes', 'qoo10_brief_name'):
-                        st.session_state.pop(k, None)
-                    st.rerun()
+                    if raw is not None:
+                        if not raw:
+                            st.warning("📭 해당 기간에 배송요청 상태 주문이 없습니다.")
+                        else:
+                            detail_bytes = qapi.build_detail_csv_bytes(raw)
+                            brief_bytes = qapi.build_brief_csv_bytes(raw)
+                            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M')
+                            detail_name = f"API_DeliveryManagement_detail_{ts}.csv"
+                            brief_name = f"API_DeliveryManagement_brief_{ts}.csv"
+                            st.session_state['qoo10_detail_bytes'] = detail_bytes
+                            st.session_state['qoo10_detail_name'] = detail_name
+                            st.session_state['qoo10_brief_bytes'] = brief_bytes
+                            st.session_state['qoo10_brief_name'] = brief_name
+                            try:
+                                bid = qgen.save_pending_brief(brief_bytes, brief_name, len(raw))
+                                st.session_state['qoo10_brief_id'] = bid
+                            except Exception as ex:
+                                st.warning(f"brief 임시저장 실패 (세션 내에서는 사용 가능): {ex}")
+                            st.success(f"✅ {len(raw)}건 가져옴")
+                            st.rerun()
 
-            det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
-            brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
+                det_loaded = bool(st.session_state.get('qoo10_detail_bytes'))
+                brief_loaded = bool(st.session_state.get('qoo10_brief_bytes'))
+                if det_loaded and brief_loaded:
+                    cnt = len(qgen.parse_qsm_csv(st.session_state['qoo10_brief_bytes']))
+                    st.info(f"📥 취합 완료: **{cnt}건** "
+                            f"(`{st.session_state.get('qoo10_brief_name')}`)")
+                    if st.button("🗑 가져온 데이터 비우기", key="step1_api_clear"):
+                        for k in ('qoo10_detail_bytes', 'qoo10_detail_name',
+                                  'qoo10_brief_bytes', 'qoo10_brief_name',
+                                  'qoo10_brief_id'):
+                            st.session_state.pop(k, None)
+                        st.rerun()
+                    if st.button("다음 단계 →", key="goto_step2_api", type="primary"):
+                        st.session_state['qoo10_step'] = 2
+                        st.rerun()
 
-            det_check = '✅' if det_uploaded else ''
-            brief_check = '✅' if brief_uploaded else ''
-            table_slot.markdown(
-                "<div style='font-size:0.75em'>\n\n"
-                "| 구분 | 취합 경로 | 파일명 예시 | 취합 |\n"
-                "|------|----------|------------|:-------:|\n"
-                f"| 배송요청 상세 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_detail_YYYYMMDD_HHMM.csv` | {det_check} |\n"
-                f"| 배송요청 요약 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_brief_YYYYMMDD_HHMM.csv` | {brief_check} |\n\n"
-                "</div>",
-                unsafe_allow_html=True,
-            )
+            else:
+                # ── CSV 업로드 (기존 흐름) ──
+                st.caption("QSM에서 다운로드한 detail / brief 파일 2개를 업로드하세요.")
+                table_slot = st.empty()
 
-            if det_uploaded and brief_uploaded:
-                st.success("✅ 두 파일 모두 업로드 완료. 다음 단계로 진행하세요.")
-                if st.button("다음 단계 →", key="goto_step2", type="primary"):
-                    st.session_state['qoo10_step'] = 2
-                    st.rerun()
+                uploaded_q = st.file_uploader(
+                    "QSM 자료 2개를 업로드해주세요",
+                    type=['csv'], accept_multiple_files=True,
+                    key="qoo10_gen_files",
+                    help="파일명에 'detail' 포함 → 상세, 'brief' 포함 → 요약으로 자동 분류",
+                )
+                if uploaded_q:
+                    for f in uploaded_q:
+                        nm = f.name.lower()
+                        if 'detail' in nm:
+                            st.session_state['qoo10_detail_bytes'] = f.getvalue()
+                            st.session_state['qoo10_detail_name'] = f.name
+                        elif 'brief' in nm:
+                            content = f.getvalue()
+                            st.session_state['qoo10_brief_bytes'] = content
+                            st.session_state['qoo10_brief_name'] = f.name
+                            try:
+                                brief_rows_cnt = len(qgen.parse_qsm_csv(content))
+                                bid = qgen.save_pending_brief(content, f.name, brief_rows_cnt)
+                                st.session_state['qoo10_brief_id'] = bid
+                            except Exception as ex:
+                                st.warning(f"brief 임시저장 실패 (세션 내에서는 사용 가능): {ex}")
+
+                clear_c1, _ = st.columns([1, 4])
+                with clear_c1:
+                    if st.button("🗑 모두 초기화", help="업로드 파일/진행 상태 초기화"):
+                        for k in ('qoo10_detail_bytes', 'qoo10_detail_name',
+                                  'qoo10_brief_bytes', 'qoo10_brief_name'):
+                            st.session_state.pop(k, None)
+                        st.rerun()
+
+                det_uploaded = bool(st.session_state.get('qoo10_detail_bytes'))
+                brief_uploaded = bool(st.session_state.get('qoo10_brief_bytes'))
+
+                det_check = '✅' if det_uploaded else ''
+                brief_check = '✅' if brief_uploaded else ''
+                table_slot.markdown(
+                    "<div style='font-size:0.75em'>\n\n"
+                    "| 구분 | 취합 경로 | 파일명 예시 | 취합 |\n"
+                    "|------|----------|------------|:-------:|\n"
+                    f"| 배송요청 상세 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(상세보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_detail_YYYYMMDD_HHMM.csv` | {det_check} |\n"
+                    f"| 배송요청 요약 파일 | QSM > 배송/취소/미수취 > 배송관리 > 배송요청(요약보기) > 신규주문 숫자 클릭 > 전체주문 엑셀다운 | `DeliveryManagement_brief_YYYYMMDD_HHMM.csv` | {brief_check} |\n\n"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+                if det_uploaded and brief_uploaded:
+                    st.success("✅ 두 파일 모두 업로드 완료. 다음 단계로 진행하세요.")
+                    if st.button("다음 단계 →", key="goto_step2", type="primary"):
+                        st.session_state['qoo10_step'] = 2
+                        st.rerun()
 
         # ═══ Step 2: KSE 출고요청서 생성 ═══
         elif active_step == 2:
@@ -1035,25 +1106,106 @@ if menu == "📤 출고요청 (Qoo10)":
                         )
 
                     if waybill_map:
-                        csv_bytes, _missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
                         try:
                             qgen.update_outbound_waybills(waybill_map)
                         except Exception as ex:
-                            st.warning(f"DB 갱신 실패 (CSV 다운로드는 가능): {ex}")
-                        # 최초 업로드한 brief와 구분되도록 prefix 추가
-                        base_name = brief_name_t2 or "QSM_waybill.csv"
-                        out_name = f"(송장번호 입력됨) {base_name}"
-                        st.download_button(
-                            f"📥 {out_name} 다운로드",
-                            data=csv_bytes,
-                            file_name=out_name,
-                            mime="text/csv",
-                            width="stretch",
-                            type="primary",
+                            st.warning(f"DB 갱신 실패 (등록은 진행 가능): {ex}")
+
+                        api_available = qapi.has_credentials()
+                        st.markdown("---")
+                        mode = st.radio(
+                            "등록 방식",
+                            options=(["🚀 API로 자동 등록 (권장)", "📄 CSV 다운로드 (수동 업로드)"]
+                                     if api_available else ["📄 CSV 다운로드 (수동 업로드)"]),
+                            horizontal=True,
+                            key="step5_mode",
+                            help=None if api_available else
+                                 "Qoo10 API 자격증명이 config.json에 없어 자동 등록 비활성화됨",
                         )
-                        if st.button("다음 단계 →", key="goto_step6", type="primary"):
-                            st.session_state['qoo10_step'] = 6
-                            st.rerun()
+
+                        if mode.startswith("🚀"):
+                            # ── API 자동 등록 모드 ──
+                            order_pairs = []
+                            seen_orders = set()
+                            for r in brief_rows:
+                                cart = (r.get('장바구니번호') or '').strip()
+                                order = (r.get('주문번호') or '').strip()
+                                wb = waybill_map.get(cart)
+                                if wb and order and order not in seen_orders:
+                                    order_pairs.append((order, wb))
+                                    seen_orders.add(order)
+
+                            st.info(
+                                f"📤 등록 대상: 주문 **{len(order_pairs)}건**, "
+                                f"송장 **{len(set(w for _, w in order_pairs))}개** "
+                                f"(같은 장바구니의 주문은 같은 송장)"
+                            )
+
+                            if st.button("🚀 QSM에 자동 등록", key="api_register",
+                                         type="primary", width="stretch",
+                                         disabled=not order_pairs):
+                                with st.spinner(f"{len(order_pairs)}건 등록 중..."):
+                                    try:
+                                        sak = qapi.get_sak()
+                                        results = qapi.register_waybills_batch(sak, order_pairs)
+                                    except Exception as ex:
+                                        st.error(f"인증/통신 실패: {ex}")
+                                        results = []
+
+                                if results:
+                                    ok_n = sum(1 for r in results if r['ok'])
+                                    fail_n = len(results) - ok_n
+                                    cc1, cc2 = st.columns(2)
+                                    cc1.metric("등록 성공", ok_n)
+                                    cc2.metric("실패", fail_n,
+                                               delta=None if fail_n == 0 else f"-{fail_n}",
+                                               delta_color="inverse")
+
+                                    df_result = pd.DataFrame([{
+                                        '주문번호': r['order_no'],
+                                        '송장번호': r['tracking_no'],
+                                        '결과': '✅ 성공' if r['ok'] else f"❌ {r.get('msg', '실패')}",
+                                    } for r in results])
+                                    st.dataframe(df_result, hide_index=True, width="stretch")
+
+                                    if fail_n == 0:
+                                        st.success("🎉 전체 송장 등록 완료. "
+                                                   "QSM에서 주문 상태가 '배송중'으로 변경되었습니다.")
+                                        if brief_id_t2:
+                                            try:
+                                                qgen.mark_brief_consumed(brief_id_t2)
+                                            except Exception:
+                                                pass
+                                        if st.button("🏁 작업 종료", key="finish_step5_api",
+                                                     type="primary", width="stretch"):
+                                            for k in ('qoo10_detail_bytes', 'qoo10_detail_name',
+                                                      'qoo10_brief_bytes', 'qoo10_brief_name',
+                                                      'qoo10_brief_id', 'oms_bytes', 'oms_name',
+                                                      'qoo10_api_orders'):
+                                                st.session_state.pop(k, None)
+                                            st.session_state['qoo10_step'] = 1
+                                            st.rerun()
+                                    else:
+                                        st.warning(
+                                            "일부 실패. 실패 건은 'CSV 다운로드' 모드로 전환해 "
+                                            "수동 업로드하거나 KSE 송장번호를 재확인하세요."
+                                        )
+                        else:
+                            # ── CSV 다운로드 모드 (기존 흐름 유지) ──
+                            csv_bytes, _missing = qgen.build_qsm_waybill_csv(brief_bytes_t2, waybill_map)
+                            base_name = brief_name_t2 or "QSM_waybill.csv"
+                            out_name = f"(송장번호 입력됨) {base_name}"
+                            st.download_button(
+                                f"📥 {out_name} 다운로드",
+                                data=csv_bytes,
+                                file_name=out_name,
+                                mime="text/csv",
+                                width="stretch",
+                                type="primary",
+                            )
+                            if st.button("다음 단계 →", key="goto_step6", type="primary"):
+                                st.session_state['qoo10_step'] = 6
+                                st.rerun()
                     else:
                         st.error("매칭되는 송장번호가 없습니다. 파일을 다시 확인해주세요.")
                 except Exception as e:

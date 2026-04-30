@@ -5,6 +5,16 @@ config.json
 # Raw files (주문/재고 원본, 개인정보 포함 가능)
 raw/
 
+# 루트의 테스트/작업 산출물 (개인정보 포함)
+/Outbound_*.xlsx
+/ORDER_LIST_*.xlsx
+/주문*.xlsx
+~$*
+*.pptx
+
+# 임시 probe 스크립트 (api_client.py로 통합됨)
+qoo10/_archive/
+
 # Python
 __pycache__/
 *.pyc
