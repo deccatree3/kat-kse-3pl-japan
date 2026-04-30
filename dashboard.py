@@ -393,12 +393,21 @@ with st.sidebar.expander("🔐 Qoo10 API 자격증명", expanded=False):
             else:
                 st.error("저장 실패 (DB 연결 확인)")
     with _b2:
-        if st.button("🧪 연결 테스트", key="sb_test_qoo10", width="stretch"):
-            try:
-                _sak = _qapi_sb.get_sak()
-                st.success(f"✅ 인증 성공 (SAK len={len(_sak)})")
-            except Exception as _e:
-                st.error(f"❌ {_e}")
+        if st.button("🧪 연결 테스트", key="sb_test_qoo10", width="stretch",
+                     help="저장 전이라도 입력란의 값으로 즉시 시도"):
+            # 입력란 값 우선, 비어있으면 저장된 값으로 보충
+            _loaded = _qapi_sb.load_credentials()
+            _t_api = _api_key_in.strip() or _loaded.get('api_key')
+            _t_uid = _user_id_in.strip() or _loaded.get('user_id')
+            _t_pw = _password_in.strip() or _loaded.get('password')
+            if not all([_t_api, _t_uid, _t_pw]):
+                st.error("3개 값(Certification Key / API ID / 비밀번호) 모두 필요합니다")
+            else:
+                try:
+                    _sak = _qapi_sb.get_sak(api_key=_t_api, user_id=_t_uid, password=_t_pw)
+                    st.success(f"✅ 인증 성공 (SAK len={len(_sak)})")
+                except Exception as _e:
+                    st.error(f"❌ {_e}")
 
 st.sidebar.markdown("---")
 
