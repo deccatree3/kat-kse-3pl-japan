@@ -35,15 +35,45 @@ def _config_path() -> str:
 
 
 def load_credentials() -> Dict[str, str]:
-    """config.json (소문자 키) → 환경변수 순으로 자격증명 로드."""
+    """자격증명 로드 우선순위: 환경변수 > Streamlit secrets > config.json.
+    - 로컬: 보통 config.json에서 읽음
+    - Streamlit Cloud: Settings > Secrets에 등록한 값을 st.secrets로 읽음
+    """
     creds = {'api_key': None, 'user_id': None, 'password': None}
+
+    # 1) config.json (로컬 개발 환경)
     cfg = _config_path()
     if os.path.exists(cfg):
-        with open(cfg, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        creds['api_key'] = data.get('qoo10_api_key')
-        creds['user_id'] = data.get('qoo10_user_id')
-        creds['password'] = data.get('qoo10_password')
+        try:
+            with open(cfg, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            creds['api_key'] = data.get('qoo10_api_key')
+            creds['user_id'] = data.get('qoo10_user_id')
+            creds['password'] = data.get('qoo10_password')
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # 2) Streamlit secrets (Cloud 환경 또는 .streamlit/secrets.toml)
+    try:
+        import streamlit as _st  # type: ignore
+        try:
+            sec = _st.secrets
+            for key, dest in (('QOO10_API_KEY', 'api_key'),
+                              ('QOO10_USER_ID', 'user_id'),
+                              ('QOO10_PASSWORD', 'password')):
+                v = None
+                try:
+                    v = sec.get(key) if hasattr(sec, 'get') else sec[key]
+                except (KeyError, FileNotFoundError, Exception):
+                    v = None
+                if v:
+                    creds[dest] = v
+        except (FileNotFoundError, Exception):
+            pass
+    except ImportError:
+        pass
+
+    # 3) 환경변수 (최우선 — 명시적 override 의도로 간주)
     creds['api_key'] = os.environ.get('QOO10_API_KEY') or creds['api_key']
     creds['user_id'] = os.environ.get('QOO10_USER_ID') or creds['user_id']
     creds['password'] = os.environ.get('QOO10_PASSWORD') or creds['password']
