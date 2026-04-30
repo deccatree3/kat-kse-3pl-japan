@@ -618,18 +618,18 @@ if menu == "📤 출고요청 (Qoo10)":
             st.markdown("#### ① QSM 주문 취합")
 
             api_available = qapi.has_credentials()
-            mode_options = (["🚀 QSM API로 가져오기 (자동)", "📄 CSV 업로드 (수동)"]
-                            if api_available else ["📄 CSV 업로드 (수동)"])
+            mode_options = (["QSM API로 가져오기 (자동)", "CSV 업로드 (수동)"]
+                            if api_available else ["CSV 업로드 (수동)"])
             mode = st.radio(
                 "취합 방식",
                 options=mode_options,
                 horizontal=True,
                 key="step1_mode",
                 help=None if api_available else
-                     "Qoo10 API 자격증명이 config.json에 없어 자동 취합 비활성화됨",
+                     "Qoo10 API 자격증명이 등록되지 않아 자동 취합 비활성화됨",
             )
 
-            if mode.startswith("🚀"):
+            if mode == "QSM API로 가져오기 (자동)":
                 # ── API 자동 취합 모드 ──
                 _api_status = qapi.get_credentials_status()
                 if _api_status['expires_at'] and _api_status['days_remaining'] is not None:
@@ -1209,15 +1209,15 @@ if menu == "📤 출고요청 (Qoo10)":
                         st.markdown("---")
                         mode = st.radio(
                             "등록 방식",
-                            options=(["🚀 API로 자동 등록 (권장)", "📄 CSV 다운로드 (수동 업로드)"]
-                                     if api_available else ["📄 CSV 다운로드 (수동 업로드)"]),
+                            options=(["API로 자동 등록 (권장)", "CSV 다운로드 (수동 업로드)"]
+                                     if api_available else ["CSV 다운로드 (수동 업로드)"]),
                             horizontal=True,
                             key="step5_mode",
                             help=None if api_available else
-                                 "Qoo10 API 자격증명이 config.json에 없어 자동 등록 비활성화됨",
+                                 "Qoo10 API 자격증명이 등록되지 않아 자동 등록 비활성화됨",
                         )
 
-                        if mode.startswith("🚀"):
+                        if mode == "API로 자동 등록 (권장)":
                             # ── API 자동 등록 모드 ──
                             order_pairs = []
                             seen_orders = set()
