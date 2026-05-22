@@ -3,6 +3,36 @@
 ## 프로젝트 개요
 KATCHERS, INC의 일본 현지 3PL(국제익스프레스, KOKUSAI EXPRESS) 물류비 내역을 검토하고 히스토리를 관리하는 프로젝트.
 
+## ⚠️ Qoo10 출고 기능 제거 완료 + 공유 Supabase 주의 (필독)
+
+**Qoo10 출고 기능은 자매 프로젝트 `C:\claude\kat-outbound-hub`(캐처스/네뉴 출고 통합)
+로 이식·확장 완료** → 이 프로젝트에서는 **코드 제거 완료 (2026-05-22)**. 단, 코드는 지웠어도
+**공유 DB 테이블·인스턴스는 보존**해야 한다 (outbound-hub 가 계속 사용).
+
+이 프로젝트의 **Supabase(Postgres) 는 outbound-hub 와 같은 인스턴스를 공유** (Free 한도
+제약). 양쪽 `config.json` 의 `database_url` 이 **동일 DSN** 확인 (2026-05-22).
+> 로컬 SQLite `db/logistics.db`(물류비) 는 이 프로젝트 전용 — 공유 아님.
+
+### 제거 완료된 것 (2026-05-22, Qoo10 출고 — outbound-hub 로 이전됨)
+- `qoo10/` 폴더 전체 삭제 (`api_client.py`, `generator.py`, `templates/`, `_archive/`) — 독립 사본이 outbound-hub 에 있음.
+- `dashboard.py` 의 Qoo10 메뉴 옵션 / 사이드바 자격증명 expander / 출고요청 본체 제거 (qoo10·QSM 참조 **144건 → 0**, **2183 → 1096행**). 분기 패턴이 `if menu == X: … st.stop()` 라 물류비·재고 메뉴는 fallthrough 로 무손상.
+- `config.json` 의 `qoo10_api_key`/`qoo10_user_id`/`qoo10_password` 제거. `.gitignore` 의 `qoo10/_archive/` 와 `.claude/settings.local.json` 의 qoo10 권한 항목 정리.
+- ⚠️ **공유 DB 테이블·DSN 은 의도적으로 미변경** (아래 "절대 건드리면 안 되는 것" 준수).
+
+### 절대 건드리면 안 되는 것 (= outbound-hub 가 깨짐)
+1. **Supabase 프로젝트 삭제/일시정지** — 두 프로젝트 DB 통째 소멸.
+2. 공유 테이블 **drop / rename / 파괴적 변경**:
+   - `qoo10_credentials`, `qoo10_product_mapping`, `qoo10_outbound`, `qoo10_pending_brief`
+     — Qoo10 코드 제거 후엔 **outbound-hub 전용**. 테이블 자체는 **반드시 보존**(drop 금지).
+3. **DSN/비밀번호 변경** 시 → outbound-hub `config.json` + Streamlit Cloud secrets 도 같이 갱신.
+
+### 유지 대상 (Qoo10 아님 — 이 프로젝트의 재고/물류 기능)
+- `db/stock_loader.py`, `alerts/notifier.py` — Qoo10 참조 0건. `shipments`/`stock_snapshots`
+  (재고 소진 예측) 적재. outbound-hub 는 이 두 테이블을 SKU 카탈로그 **fallback**(2순위)으로만 사용.
+- SQLite `logistics.db` + 물류비 검토 기능 일체.
+
+(outbound-hub 세션의 두 프로젝트 의존성 점검 결과로 추가, 2026-05-22. 같은 날 Qoo10 코드 제거 완료.)
+
 ## 3PL 업체 정보
 - **업체명**: 株式会社国際エキスプレス (KOKUSAI EXPRESS CO., LTD.)
 - **담당자**: 金 容度 (김용도)

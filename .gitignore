@@ -12,9 +12,6 @@ raw/
 ~$*
 *.pptx
 
-# 임시 probe 스크립트 (api_client.py로 통합됨)
-qoo10/_archive/
-
 # Python
 __pycache__/
 *.pyc
